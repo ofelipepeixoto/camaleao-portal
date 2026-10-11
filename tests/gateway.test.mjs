@@ -46,11 +46,12 @@ function sdk(options = {}) {
       calls.push(['from', table]);
       const result = table === 'camaleao_memberships'
         ? (options.membershipResponse ?? { data: [{ organization_id: org, role: 'client', camaleao_organizations: { name: 'Estúdio Aurora' } }], error: null })
-        : (options.requestResponse ?? { data: [row], error: null });
+        : (options.tableResponses?.[table] ?? options.requestResponse ?? { data: [row], error: null });
       const chain = {
         select: (columns) => { calls.push(['select', table, columns]); return chain; },
         eq: (column, value) => { calls.push(['eq', table, column, value]); return chain; },
         order: (column, settings) => { calls.push(['order', table, column, settings]); return chain; },
+        range: (start, end) => { calls.push(['range', table, start, end]); return chain; },
         limit: (limit) => { calls.push(['limit', table, limit]); return chain; },
         then: (resolve, reject) => Promise.resolve(result).then(resolve, reject),
       };
@@ -189,4 +190,50 @@ test('falha de saída global tenta remover sessão local e informa a limitação
   const mock = sdk({ logoutResponse: { error: { message: 'PRIVATE_LOGOUT_DETAIL' } } });
   await assert.rejects(mock.gateway.signOut(), { code: 'logout' });
   assert.deepEqual(mock.calls, [['signOut', undefined], ['signOut', { scope: 'local' }]]);
+});
+
+const presentation={deliveryId:'50000000-0000-4000-8000-000000000001',expectedDeliveryId:null,content:'Entrega de texto fictício para revisar.'};
+const choice={decisionId:'60000000-0000-4000-8000-000000000001',deliveryId:presentation.deliveryId,contentHash:'a'.repeat(64),outcome:'approved',adjustment:''};
+const deliveryRow={id:presentation.deliveryId,organization_id:org,request_id:requestId,version:1,content:presentation.content,content_hash:choice.contentHash,created_by:actor.id,created_at:row.created_at};
+const operatorMembership={data:[{organization_id:org,role:'operator',camaleao_organizations:{name:'Aurora'}}],error:null};
+test('B adapter reads history scoped to organization and request, with version ordering',async()=>{
+  const mock=sdk({tableResponses:{camaleao_deliveries:{data:[deliveryRow],error:null},camaleao_decisions:{data:[],error:null}}});
+  const result=await mock.gateway.deliveryHistory(org,requestId);
+  assert.equal(result.deliveries[0].contentHash,choice.contentHash);assert.equal(result.decisions.length,0);
+  for(const table of ['camaleao_deliveries','camaleao_decisions']){
+    for(const call of [['eq',table,'organization_id',org],['eq',table,'request_id',requestId],['order',table,'version',{ascending:false}],['range',table,0,99]])
+      assert.ok(mock.calls.some(c=>JSON.stringify(c)===JSON.stringify(call)));
+  }
+});
+test('B adapter cannot present as client or decide as operator; revoked member does not call RPC',async()=>{
+  const client=sdk(),operator=sdk({membershipResponse:operatorMembership}),revoked=sdk({membershipResponse:{data:[],error:null}});
+  await assert.rejects(client.gateway.presentDelivery(org,requestId,presentation),{code:'access_denied'});
+  await assert.rejects(operator.gateway.decideDelivery(org,requestId,choice),{code:'access_denied'});
+  await assert.rejects(revoked.gateway.deliveryHistory(org,requestId),{code:'access_denied'});
+  await assert.rejects(revoked.gateway.decideDelivery(org,requestId,choice),{code:'access_denied'});
+  for(const mock of [client,operator,revoked]) assert.equal(mock.calls.some(c=>c[0]==='rpc'),false);
+});
+test('B adapter sends exact version/hash/retry ID without forged actor or outcome metadata',async()=>{
+  const mock=sdk({rpcResponse:{data:{...deliveryRow,delivery_id:choice.deliveryId,actor_id:actor.id,outcome:'approved',adjustment:'',decided_at:row.created_at},error:null}});
+  await mock.gateway.decideDelivery(org,requestId,{...choice,actorId:'forged',version:999});
+  assert.deepEqual(mock.calls.find(c=>c[0]==='rpc'),['rpc','camaleao_decide_delivery',{
+    p_organization_id:org,p_request_id:requestId,p_delivery_id:choice.deliveryId,p_content_hash:choice.contentHash,
+    p_decision_id:choice.decisionId,p_outcome:'approved',p_adjustment:'',
+  }]);
+  const presentMock=sdk({membershipResponse:operatorMembership,rpcResponse:{data:deliveryRow,error:null}});
+  assert.equal((await presentMock.gateway.presentDelivery(org,requestId,presentation)).version,1);
+  assert.deepEqual(presentMock.calls.find(c=>c[0]==='rpc')[2],{p_organization_id:org,p_request_id:requestId,p_delivery_id:presentation.deliveryId,p_expected_delivery_id:null,p_content:presentation.content});
+});
+test('B version conflict is distinguished from transport failure and preserves retry payload',async()=>{
+  for(const [code,expected] of [['40001','version_conflict'],['23505','conflict'],['08006','unavailable']]){
+    const mock=sdk({rpcResponse:{data:null,error:{code,message:'PRIVATE_DETAIL'}}});
+    for(let i=0;i<2;i++)await assert.rejects(mock.gateway.decideDelivery(org,requestId,choice),e=>e.code===expected&&!e.message.includes('PRIVATE_DETAIL'));
+    assert.deepEqual(mock.calls.filter(c=>c[0]==='rpc').map(c=>c[2].p_decision_id),[choice.decisionId,choice.decisionId]);
+  }
+});
+test('B invalid adjustment and malformed RPC response never become a decision',async()=>{
+  const mock=sdk();
+  await assert.rejects(mock.gateway.decideDelivery(org,requestId,{...choice,outcome:'changes_requested',adjustment:'curto'}),{code:'validation'});
+  assert.equal(mock.calls.length,0);
+  for(const data of [null,[],false,{}, {...deliveryRow,version:0}])await assert.rejects(sdk({rpcResponse:{data,error:null}}).gateway.decideDelivery(org,requestId,choice),{code:'unavailable'});
 });

@@ -10,7 +10,7 @@ function realGateway(): Gateway {
   if (!url || !key || !key.startsWith('sb_publishable_')) {
     const unavailable = async (): Promise<never> => { throw new Error('Portal em preparação. A equipe precisa conectar o acesso antes do piloto.'); };
     return { init: unavailable, signIn: unavailable, signOut: unavailable,
-      memberships: unavailable, listRequests: unavailable, createRequest: unavailable, onSessionChanged: () => () => {} };
+      memberships: unavailable, listRequests: unavailable, createRequest: unavailable, deliveryHistory: unavailable, presentDelivery: unavailable, decideDelivery: unavailable, onSessionChanged: () => () => {} };
   }
   const parsed = new URL(url);
   if (parsed.protocol !== 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname)) throw new Error('O acesso ao portal exige HTTPS.');

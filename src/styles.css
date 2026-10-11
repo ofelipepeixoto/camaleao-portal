@@ -436,3 +436,13 @@ select.input { padding-right: 24px; }
   .notice { font-size: 11px; }
   .history-help, .list-footnote, .page-footer { font-size: 10px; }
 }
+
+/* B2: preserve readable text and full hash on narrow screens. */
+.delivery-body { display: grid; gap: 1rem; }
+.delivery-content { display: grid; gap: 1.5rem; min-width: 0; }
+.delivery-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.delivery-hash { font-size: .75rem; overflow-wrap: anywhere; }
+.delivery-history { list-style: none; padding: 0; display: grid; gap: 1rem; }
+.delivery-content .dialog-actions { flex-wrap: wrap; }
+.delivery-content .request-form { display: grid; gap: 1rem; }
+.delivery-content .request-form[hidden] { display: none; }
