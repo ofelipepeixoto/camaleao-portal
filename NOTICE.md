@@ -23,3 +23,5 @@ nesta arquitetura apenas a equipe cria e opera os workflows de triagem.
 
 Fonte de n8n consultada em 11/10/2026:
 https://docs.n8n.io/n8n-community-license/community-license/license-faq
+
+Orientações de briefing e roteiro editorial: adaptação seletiva de Marketing Skills, Copyright (c) 2025 Corey Haines (MIT). Ver third-party/marketingskills-LICENSE.txt e docs/MARKETING-PILOTO.md para origem e escopo.

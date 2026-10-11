@@ -86,3 +86,7 @@ nem cópia do produto privado de diagnóstico de infraestrutura Camaleão.
 Copyright © 2026 Carlos Felipe / Agência Camaleão. A visibilidade pública não
 concede uma licença open source; a licença de distribuição ainda será decidida.
 Componentes externos preservam suas licenças e autoria. [Avisos](NOTICE.md).
+
+## Piloto editorial
+
+[Orientações de briefing, roteiro de revisão e 20 casos fictícios](docs/MARKETING-PILOTO.md). Avaliação humana/LLM e integrações reais ainda pendentes.
