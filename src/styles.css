@@ -446,3 +446,22 @@ select.input { padding-right: 24px; }
 .delivery-content .dialog-actions { flex-wrap: wrap; }
 .delivery-content .request-form { display: grid; gap: 1rem; }
 .delivery-content .request-form[hidden] { display: none; }
+
+/* B3: preserve the existing Camaleão palette and expose the review task. */
+.delivery-dialog { height: min(860px, calc(100dvh - 44px)); }
+.demo-guide, .approval-review, .draft-notice { padding: 20px; border: 1px solid #536944; border-radius: 12px; background: #182615; display: grid; gap: 14px; }
+.demo-guide h3, .approval-review h3, .draft-notice h3, .delivery-current h3 { font-size: 17px; line-height: 1.5; }
+.demo-guide p, .approval-review p, .draft-notice p, .delivery-content p, .demo-steps { font-size: 14px; line-height: 1.7; }
+.demo-guide .button { white-space: normal; }
+.demo-steps { padding-left: 22px; }
+.delivery-current { display: grid; gap: 14px; min-width: 0; }
+.delivery-content > * { min-width: 0; }
+.approval-review .button, .draft-notice .button { min-width: 0; white-space: normal; }
+.delivery-content > .demo-guide:first-child { padding: 14px; gap: 10px; }
+.delivery-content summary { cursor: pointer; padding: 12px 0; line-height: 1.5; font-size: 14px; }
+.delivery-content details p { padding-top: 8px; }
+.delivery-content .delivery-hash { font-size: 12px; }
+.delivery-content [hidden] { display: none !important; }
+.delivery-previous, .delivery-technical { border-top: 1px solid #33442d; }
+.request-review { margin: 0 24px 16px; padding: 8px 0; }
+.request-list > li { border-bottom: 1px solid #293a25; }

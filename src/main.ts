@@ -3,6 +3,7 @@ import type { Membership, PortalRequest, RequestPayload, User } from './model';
 import { brandedName, button, el, field, icon, input, modal, select } from './ui';
 import './styles.css';
 import { openDeliveryDialog, clearDeliveryDrafts } from './delivery-ui';
+import { DemoGateway, DEMO_EXAMPLE_ID } from './demo-gateway';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('Elemento principal indisponível.');
@@ -139,30 +140,42 @@ function loginScreen(message = ''): void {
   password.required = true;
   password.autocomplete = 'current-password';
   const feedback = el('p', 'form-feedback');
+  const loginStatus = el('p', 'muted');
+  loginStatus.setAttribute('role', 'status');
   feedback.setAttribute('role', 'alert');
   feedback.textContent = message;
   feedback.hidden = !message;
   const submit = button('Entrar no portal', 'button button-primary');
   submit.type = 'submit';
   submit.append(icon('arrow'));
-  form.append(field('E-mail', email), field('Senha', password), feedback, submit);
+  form.append(field('E-mail', email), field('Senha', password), loginStatus, feedback, submit);
   let loginPending = false;
-  const action = async (loginEmail: string, loginPassword: string) => {
+  const action = async (loginEmail: string, loginPassword: string, example = false) => {
     if (loginPending) return;
     loginPending = true;
     submit.disabled = true;
     submit.textContent = 'Confirmando acesso…';
     feedback.hidden = true;
+    loginStatus.textContent = example ? 'Preparando o exemplo fictício…' : 'Confirmando acesso…';
+    for (const control of login.querySelectorAll('button')) control.disabled = true;
     try {
+      if (example && isDemo && gateway instanceof DemoGateway) await gateway.prepareExample();
       const signedIn = await gateway.signIn(loginEmail, loginPassword);
       if (!user || user.id !== signedIn.id) await changeSession(signedIn);
+      if (example && isDemo) {
+        await refresh();
+        const request = requests.find(r => r.id === DEMO_EXAMPLE_ID);
+        if (request && user?.id === signedIn.id) deliveriesDialog(request);
+      }
     } catch {
-      feedback.textContent = 'Não foi possível entrar. Confira seu e-mail e sua senha e tente novamente.';
+      feedback.textContent = isDemo ? 'Não foi possível abrir a demonstração. Verifique se o navegador permite salvar dados locais e tente novamente.' : 'Não foi possível entrar. Confira seu e-mail e sua senha e tente novamente.';
       feedback.hidden = false;
       submit.disabled = false;
       submit.replaceChildren('Entrar no portal', icon('arrow'));
     } finally {
       loginPending = false;
+      loginStatus.textContent = '';
+      for (const control of login.querySelectorAll('button')) control.disabled = false;
     }
   };
   form.addEventListener('submit', (event) => {
@@ -191,6 +204,15 @@ function loginScreen(message = ''): void {
     el('p', 'login-footnote', 'Seu projeto, em boa companhia.'),
   );
   if (isDemo) {
+    const guide = el('section', 'demo-guide', el('h3', '', 'Do contexto à decisão'),
+      el('p', '', 'Roteiro de 90 segundos: leia um pedido e uma versão já preparados, revise o texto e registre uma decisão fictícia.'),
+      button('Revisar exemplo fictício', 'button button-primary', () => { void action('aurora@exemplo.test', 'demo-only', true); }),
+      el('p', 'muted', 'Só neste navegador. Sem envio, IA ou automação. Suas decisões de demonstração serão preservadas.'));
+    form.before(guide);
+    guide.append(loginStatus, feedback);
+    form.hidden = true;
+    login.querySelector('.login-description')!.textContent = 'Experimente o papel do cliente em um cenário fictício. Não use dados reais.';
+    login.querySelector('.login-invite-note')!.textContent = 'Para um piloto com clientes reais, acesso e integrações ainda precisam de homologação.';
     const demos = el('div', 'demo-login', el('p', '', 'Explore com uma identidade fictícia:'),
       button('Cliente Aurora', 'button button-soft', () => { void action('aurora@exemplo.test', 'demo-only'); }),
       button('Cliente Horizonte', 'button button-soft', () => { void action('horizonte@exemplo.test', 'demo-only'); }),
@@ -237,6 +259,8 @@ async function refresh(): Promise<void> {
     if (epoch !== sessionEpoch || sequence !== refreshEpoch || !user) return;
     memberships = allowed;
     if (!allowed.length) {
+      uncertainDrafts.clear();
+      clearDeliveryDrafts();
       requests = [];
       organizationId = '';
       dismissDialog();
@@ -245,6 +269,8 @@ async function refresh(): Promise<void> {
       return;
     }
     if (organizationId && !allowed.some((membership) => membership.organizationId === organizationId)) {
+      uncertainDrafts.clear();
+      clearDeliveryDrafts();
       requests = [];
       organizationId = '';
       dismissDialog();
@@ -327,6 +353,8 @@ function organizationPicker(): HTMLElement {
   control.setAttribute('aria-label', 'Selecionar organização');
   control.addEventListener('change', () => {
     ++refreshEpoch;
+    uncertainDrafts.clear();
+    clearDeliveryDrafts();
     requests = [];
     dismissDialog();
     organizationId = control.value;
@@ -459,7 +487,9 @@ function requestRow(request: PortalRequest): HTMLLIElement {
     el('div', 'request-deadline', icon('calendar'), el('span', '', date(request.desiredDeadline, true)), request.urgency === 'urgente' ? el('span', 'urgent-note', 'Urgência relatada') : null),
     icon('arrow', 'row-arrow'),
   );
-  return el('li', '', card);
+  const review = button('Revisar entregas', 'text-button request-review', () => deliveriesDialog(request));
+  review.setAttribute('aria-label', `Revisar entregas do pedido ${request.protocol}`);
+  return el('li', '', card, review);
 }
 
 function historyPanel(): HTMLElement {
@@ -496,18 +526,27 @@ function detailsDialog(request: PortalRequest): void {
   for (const [label, value] of rows) definitions.append(el('div', '', el('dt', '', label), el('dd', '', value)));
   details.append(definitions, el('section', 'context-block', el('h3', '', 'Contexto do pedido'), el('p', '', request.context)), el('div', 'notice detail-note', icon('clock'), el('span', '', request.status === 'em_triagem' ? 'A equipe está organizando o pedido. O prazo informado é uma preferência; o compromisso de entrega será combinado com você.' : 'Seu pedido foi registrado. A equipe fará a triagem manual antes de definir os próximos passos e o prazo de entrega.')));
   details.append(button('Entregas e decisões', 'button button-primary', () => {
-    const epoch = sessionEpoch;
-    const org = organizationId;
-    dismissDialog();
-    openDeliveryDialog({ gateway, request, operator: currentMembership()?.role === 'operator',
-      valid: () => epoch === sessionEpoch && org === organizationId && Boolean(user),
-      accessDenied: () => { void invalidateAccess(); },
-      register: dialog => { openDialog = dialog; dialog.addEventListener('close', () => { if (openDialog === dialog) openDialog = null; }); },
-    });
+    result.close();
+    if (openDialog === result.dialog) openDialog = null;
+    deliveriesDialog(request);
   }));
   const result = modal(`Pedido ${request.protocol}`, 'Os detalhes que você compartilhou com a Camaleão.', details);
   openDialog = result.dialog;
   result.dialog.addEventListener('close', () => { if (openDialog === result.dialog) openDialog = null; });
+}
+
+function deliveriesDialog(request: PortalRequest): void {
+    if (!user || request.organizationId !== organizationId || !currentMembership()) return;
+    const epoch = sessionEpoch;
+    const org = organizationId;
+    dismissDialog();
+    openDeliveryDialog({ gateway, request, operator: currentMembership()?.role === 'operator',
+      organizationName: currentMembership()!.organizationName,
+      demoNext: isDemo && request.id === DEMO_EXAMPLE_ID ? createRequestDialog : undefined,
+      valid: () => epoch === sessionEpoch && org === organizationId && Boolean(user),
+      accessDenied: () => { void invalidateAccess(); },
+      register: dialog => { openDialog = dialog; dialog.addEventListener('close', () => { if (openDialog === dialog) openDialog = null; }); },
+    });
 }
 
 function createRequestDialog(): void {

@@ -27,6 +27,14 @@ aprova ou pede ajustes. Veja [B1: contrato SQL](docs/ENTREGA-B1.md) e
 [B2: demo, testes e limites](docs/ENTREGA-B2.md). Anexos privados continuam fora
 do escopo até homologar Storage.
 
+## B3 — demonstrar valor e retomar a revisão
+
+Na branch `feat/b3-demo-revisao`, dependente de B2, a entrada **Revisar exemplo
+fictício** abre um cenário preparado. A aprovação identifica versão e consequência;
+rascunhos de entrega/ajuste podem ser retomados na mesma sessão. Veja a
+[auditoria, roteiro de 90 segundos, testes e limites do piloto](docs/REVISAO-UX-B3.md).
+Este incremento não altera a demo publicada nem homologa integrações reais.
+
 ## Experimentar com dados fictícios
 
 Node 24+. Depois de clonar a branch completa de implementação:
