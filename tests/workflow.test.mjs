@@ -42,6 +42,7 @@ test('fixture executa o JavaScript embutido e devolve duas prévias fictícias',
   const workflow = jsons['triagem-camaleao.fixture.workflow.json'];
   assert.ok(workflow.nodes.every(node => node.type !== 'n8n-nodes-base.postgres'));
   const fixtureRows = runCode(workflow.nodes[1]).map(item => item.json);
+  assert.deepEqual(fixtureRows.map(row => row.desired_deadline), ['2026-10-20', null]);
   const outputs = runCode(workflow.nodes[2], fixtureRows);
   assert.equal(outputs.length, 2);
   assert.deepEqual(outputs.map(item => item.json.fila_sugerida), ['design_social', 'automacoes']);
@@ -71,8 +72,10 @@ test('a configuração de banco vem bloqueada e a saída falsa informa ausência
 test('SQL usa somente funções restritas e parâmetros, sem interpolar conteúdo', () => {
   const nodes = jsons['triagem-camaleao.database.workflow.json'].nodes.filter(node => node.type === 'n8n-nodes-base.postgres');
   assert.equal(nodes.length, 2);
-  assert.equal(nodes[0].parameters.query, 'SELECT * FROM camaleao_private.claim_jobs($1::integer);');
+  assert.match(nodes[0].parameters.query, /FROM camaleao_private\.claim_jobs\(\$1::integer\);$/);
+  assert.equal(nodes[0].parameters.options.queryReplacement, '={{ [$json.batch_limit] }}');
   assert.equal(nodes[1].parameters.query, 'SELECT camaleao_private.finish_job($1::uuid, $2::uuid, $3::text, $4::text) AS result;');
+  assert.equal(nodes[1].parameters.options.queryReplacement, '={{ [$json.id, $json.lease_token, $json.outcome, $json.error_code] }}');
   for (const node of nodes) {
     assert.equal(node.retryOnFail, false);
     assert.equal(node.onError, 'stopWorkflow');
@@ -123,6 +126,18 @@ test('validação inválida não retorna sucesso nem pede retry transitório', (
 test('campos opcionais, texto Unicode e ano bissexto seguem o contrato SQL', () => {
   const row = { ...fixtures[0], channel: null, format: '', context: '😀'.repeat(2000), desired_deadline: '2028-02-29' };
   assert.equal(triageRows([row])[0].json.outcome, 'success');
+});
+test('a regra exige data civil: Date e ISO serializado continuam inválidos', () => {
+  for (const desired_deadline of [null, '2026-10-20', '0001-01-01', '9999-12-31', '2000-02-29', '2100-02-28']) {
+    assert.equal(triageRows([{ ...fixtures[0], desired_deadline }])[0].json.outcome, 'success');
+  }
+  for (const desired_deadline of [new Date('2026-10-20T00:00:00.000Z'),
+    '2026-10-20T00:00:00.000Z', '2026-10-20T00:00:00+14:00', '2100-02-29']) {
+    const result = triageRows([{ ...fixtures[0], desired_deadline }])[0].json;
+    assert.equal(result.outcome, 'validation_error');
+    assert.equal(result.error_code, 'INVALID_REQUEST');
+    assert.deepEqual(result.problemas, ['desired_deadline']);
+  }
 });
 test('status e papel recebidos são ignorados; cliente não define transição ou prioridade', () => {
   const row = { ...fixtures[0], status: 'aprovado', role: 'admin', prioridade: 'alta' };

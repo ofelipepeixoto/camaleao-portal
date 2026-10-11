@@ -1,6 +1,6 @@
 # B2 — apresentar, aprovar e pedir ajustes
 
-Base: feat/b1-decisoes (d5bb365). Revisar B1 antes de B2; não integrar B2
+Base original: feat/b1-decisoes (d5bb365). Revisar B1 antes de B2; não integrar B2
 independentemente da migração. As PRs da entrega A continuam pendentes de revisão
 humana; não foram reescritas. B2 contém adapter, demo, UI e testes dessa camada.
 
@@ -71,3 +71,22 @@ Ainda precisam de homologação C: Auth/JWT/sessões reais, RLS e RPC pela Data 
 quotas, migração/advisors revisados, backup/restauração e integração n8n restrita.
 T11 depende de Storage privado/autorização real; não há upload demonstrado.
 Não houve SQL remoto, contas/segredos, n8n ativo, VPS/DNS ou publicação.
+
+## Conciliação com A4 corrigida e B1
+
+Em 11/10/2026, a camada B2 foi preparada sobre o conteúdo B1 conciliado com A4
+`a718838007456324d0fac377cfd9ec5c64876e2b`. O conteúdo funcional de B2 foi
+preservado. A base da PR continua `feat/b1-decisoes`; não há migração B2.
+
+Instalação limpa e testes locais da árvore combinada: 82 Node aprovados em
+PGlite, nove ignorados de concorrência; 91 aprovados em PostgreSQL 17.11
+descartável, zero ignorados, com Node em `TZ=America/Los_Angeles`; builds
+normal/demo, gerador, scanner de 47 arquivos e auditoria sem vulnerabilidades
+reportadas aprovados. Os 20 cenários de data SQL → driver → Code → conclusão
+passaram junto aos testes de versões/decisões B1 e adapter B2.
+Playwright em Chromium 154: 12 aprovados (seis A + seis B), incluindo os casos
+axe, interface móvel, conflitos de versão, retry e limpeza após troca de sessão.
+
+Os resultados são testes sintéticos locais. Não representam execução real do
+engine n8n, Auth/PostgREST/Storage remoto ou CI própria de B2. A CI do SHA
+publicado deve ser conferida na PR B2, sem herdar aprovação da CI de A4.

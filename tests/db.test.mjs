@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { openDatabase, ids, validPayload, createRequest, asActor, asWorker, assertLocalTestUrl } from '../scripts/test-db.mjs';
+import { buildWorkflows } from '../scripts/generate-workflow.mjs';
 
 let db;
 before(async () => { db=await openDatabase(); console.log(`SQL engine: ${db.kind}; Auth contract is a local fixture, not Supabase Auth.`); });
@@ -121,6 +122,75 @@ test('queue claims bounded batch and successful finish is atomic and idempotent'
   assert.equal((await db.query("select count(*)::int n from camaleao_private.events where request_id=$1 and kind='request_triaged'",[first.request_id])).rows[0].n,1);
   assert.equal((await claim()).rows.length,2);
 });
+
+// Exercise the generated SQL and embedded Code node together, without running n8n.
+// The server suite uses pg's real wire parsers; PGlite runs the same SQL in WASM.
+const workflow = buildWorkflows()['triagem-camaleao.database.workflow.json'];
+const claimNode = workflow.nodes.find(node => node.id === 'camaleao-claim');
+const triageNode = workflow.nodes.find(node => node.id === 'camaleao-triage-db');
+const finishNode = workflow.nodes.find(node => node.id === 'camaleao-finish');
+const deadlines = [
+  null, '2026-10-20', '2000-02-29', '2100-02-28', '2026-12-31',
+  '2027-01-01', '2018-11-04', '2011-12-30', '0001-01-01', '9999-12-31',
+];
+for (const timezone of ['UTC', 'America/Sao_Paulo', 'America/Los_Angeles', 'Pacific/Kiritimati', 'Pacific/Apia']) {
+  for (const dateStyle of ['ISO, MDY', 'SQL, DMY']) {
+    for (const serialized of [false, true]) {
+      test(`workflow date contract: ${timezone}, ${dateStyle}, ${serialized ? 'JSON round trip' : 'driver rows'}`, async () => {
+        try {
+          const expected = new Map();
+          for (const desired_deadline of deadlines) {
+            const request = await createRequest(db, randomUUID(), { ...validPayload, desired_deadline });
+            expected.set(request.id, desired_deadline);
+          }
+          // Vary the worker session after creation to isolate the claim contract.
+          await db.query("select set_config('TimeZone',$1,false), set_config('DateStyle',$2,false)", [timezone, dateStyle]);
+          const claimed = await asWorker(db, claimNode.parameters.query, [10]);
+          // TEXT OID 25 prevents DATE OID 1082 from entering a timezone-aware parser.
+          assert.equal(claimed.fields.find(field => field.name === 'desired_deadline').dataTypeID, 25);
+          const rows = serialized ? JSON.parse(JSON.stringify(claimed.rows)) : claimed.rows;
+          assert.equal(rows.length, deadlines.length);
+          assert.equal(new Set(rows.map(row => row.request_id)).size, deadlines.length);
+          for (const row of rows) {
+            assert.ok(expected.has(row.request_id));
+            assert.equal(row.desired_deadline, expected.get(row.request_id));
+          }
+          const outputs = new Function('$input', triageNode.parameters.jsCode)({ all: () => rows.map(json => ({ json })) });
+          assert.equal(outputs.length, rows.length);
+          for (const { json: output } of outputs) {
+            assert.equal(output.outcome, 'success');
+            assert.equal(output.error_code, null);
+            const completed = (await asWorker(db, finishNode.parameters.query,
+              [output.id, output.lease_token, output.outcome, output.error_code])).rows[0].result;
+            assert.equal(completed.state, 'completed');
+            assert.equal(completed.status, 'em_triagem');
+          }
+          const stored = await db.query(`
+            select r.id, to_char(r.desired_deadline::timestamp without time zone, 'YYYY-MM-DD') as desired_deadline,
+              r.status, r.triage_queue, r.version, j.state, j.attempts, j.error_code,
+              (select count(*)::int from camaleao_private.events e
+                where e.request_id=r.id and e.kind='request_triaged') as triaged_events
+            from public.camaleao_requests r join camaleao_private.jobs j on j.request_id=r.id`);
+          assert.equal(stored.rows.length, deadlines.length);
+          for (const row of stored.rows) {
+            assert.equal(row.desired_deadline, expected.get(row.id));
+            assert.equal(row.status, 'em_triagem');
+            assert.equal(row.triage_queue, 'design_social');
+            assert.equal(row.version, 2);
+            assert.equal(row.state, 'completed');
+            assert.equal(row.attempts, 1);
+            assert.equal(row.error_code, null);
+            assert.equal(row.triaged_events, 1);
+          }
+          assert.equal((await asWorker(db, claimNode.parameters.query, [10])).rows.length, 0);
+        } finally {
+          await db.exec('reset TimeZone; reset DateStyle;');
+        }
+      });
+    }
+  }
+}
+
 test('T09 lease expiry/restart replaces token; stale worker cannot finish',async () => {
   await createRequest(db,randomUUID());
   const first=(await claim()).rows[0];

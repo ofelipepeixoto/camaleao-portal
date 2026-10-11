@@ -1,6 +1,6 @@
 # B1 — versões textuais e decisões
 
-Base: feat/a4-triagem, commit 34ed29e7d743d8b25db07a95874d000365791440.
+Base original: feat/a4-triagem, commit 34ed29e7d743d8b25db07a95874d000365791440.
 Plano consultado: PR #6 de radar-n8n-projetos, head
 3c52dfea9b338388b0788d4db335425622e3908f, entrega B e T06/T07/T08.
 
@@ -43,3 +43,22 @@ Nenhuma conexão a Supabase/n8n real. CI desta mudança ainda não foi confirmad
 
 Revisão: migração → casos B de tests/db.test.mjs → este contrato. Reversão de UI
 preserva as tabelas; após uso real não apagar registros para desfazer migração.
+
+## Conciliação com a correção de data A4
+
+Em 11/10/2026, a camada B1 foi preparada com a correção A4
+`a718838007456324d0fac377cfd9ec5c64876e2b`, preservando o SQL e os casos B1.
+O claim passa a transportar a data civil como texto; o gerador e os JSONs
+correspondem aos de A4. A evidência anterior acima antecede essa conciliação.
+
+Instalação limpa e testes locais da árvore combinada: 77 Node aprovados em
+PGlite, nove ignorados de concorrência; 86 aprovados em PostgreSQL 17.11
+descartável, zero ignorados, com Node em `TZ=Pacific/Kiritimati`; seis testes
+Playwright em Chromium 154; builds normal/demo, gerador, scanner de 45 arquivos
+e auditoria sem vulnerabilidades reportadas aprovados. Os 20 cenários de data
+testam dez prazos, cinco fusos SQL, dois DateStyle e transporte direto/JSON até
+a conclusão do job. Os casos de versões, decisões e concorrência B1 passaram.
+
+Esses resultados são locais, com Auth fixture; não afirmam CI própria de B1,
+execução real n8n ou homologação Supabase. A CI do SHA publicado deve ser
+conferida na PR B1, cuja base continua sendo `feat/a4-triagem`.

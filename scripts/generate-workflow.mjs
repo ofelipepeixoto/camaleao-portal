@@ -43,7 +43,11 @@ export function buildWorkflows() {
       },
       id: 'camaleao-if', name: 'Banco liberado manualmente?', type: 'n8n-nodes-base.if', typeVersion: 2.2, position: [660, 280],
     },
-    postgres('camaleao-claim', 'Reivindicar lote com lease', 'SELECT * FROM camaleao_private.claim_jobs($1::integer);', '={{ [$json.batch_limit] }}', [930, 180]),
+    // SQL date must cross the driver as text, without timezone or DateStyle conversion.
+    postgres('camaleao-claim', 'Reivindicar lote com lease', `SELECT id, request_id, organization_id, lease_token, attempts,
+  category, goal, channel, format, context,
+  to_char(desired_deadline::timestamp without time zone, 'YYYY-MM-DD') AS desired_deadline, urgency
+FROM camaleao_private.claim_jobs($1::integer);`, '={{ [$json.batch_limit] }}', [930, 180]),
     code('camaleao-triage-db', 'Validar e sugerir fila', `${rules}return triageRows($input.all().map(item => item.json));`, [1200, 180]),
     postgres('camaleao-finish', 'Concluir job com token do lease', 'SELECT camaleao_private.finish_job($1::uuid, $2::uuid, $3::text, $4::text) AS result;', '={{ [$json.id, $json.lease_token, $json.outcome, $json.error_code] }}', [1470, 180]),
     code('camaleao-blocked', 'Banco permanece bloqueado', "return [{ json: { status: 'DB_DISABLED', storage_mutated: false, paid_ai: false, mensagem: 'Teste manual bloqueado: o banco não foi consultado. Use a triagem fictícia para testar agora.' } }];", [930, 420]),
