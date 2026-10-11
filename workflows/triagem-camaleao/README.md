@@ -25,6 +25,7 @@ Resultado esperado: dois itens com `simulation: true`, `status: em_triagem`,
 `requer_revisao_humana: true`, `storage_mutated: false` e `paid_ai: false`.
 A primeira fila é `design_social`; a segunda, `automacoes`. Esse status é uma
 prévia fictícia: não houve alteração no status de um pedido real.
+A primeira solicitação tem prazo `2026-10-20`; a segunda mantém prazo `null`.
 
 Para ver os nós maiores, use o zoom do editor. Arraste o nó pelo título; para
 ler o resultado, abra o nó com dois cliques. As posições dos nós já estão espaçadas.
@@ -43,6 +44,13 @@ O worker recebe as linhas de `camaleao_private.claim_jobs`:
 | `context` | Texto obrigatório, 10–2.000 caracteres |
 | `desired_deadline` | Data válida `YYYY-MM-DD` ou `null`; não promete prazo de entrega |
 | `urgency` | `normal` ou `urgente`; não define prioridade da equipe |
+
+A consulta gerada de claim projeta `desired_deadline` como texto com
+`to_char(desired_deadline::timestamp without time zone, 'YYYY-MM-DD')` e preserva
+`null`. Assim, o driver não transforma a data civil em `Date`/ISO. O cast explícito
+evita o fuso implícito de `to_char(date, ...)`, inclusive em dias suprimidos pelo
+calendário local, e a máscara independe de `DateStyle`. Não há corte de string ISO.
+O retorno SQL da função continua `date`; permissões e regras não mudam.
 
 O limite é de dez jobs por execução. Semântica de tamanho acompanha caracteres
 Unicode do banco. Lote com ID de job repetido ou envelope sem token válido é
@@ -135,9 +143,14 @@ Os testes executam o JavaScript embutido nos JSONs e verificam enumerações,
 limites, datas, lote, duplicatas de job, tentativas, tokens e campos privados.
 Também conferem o gate de banco, SQL parametrizado, conexões estruturais,
 ausência de credenciais e reprodutibilidade dos arquivos gerados.
-Esses testes não executam o engine n8n ou sua conexão Postgres. Testes do banco
-estão separados no repositório. Importação, configuração de credencial e execução
-real no n8n continuam pendentes de homologação.
+`npm test` acrescenta, em `tests/db.test.mjs`, o caminho consulta de claim gerada
+→ linhas do driver (diretas ou serializadas em JSON) → Code embutido → consulta
+de conclusão gerada. Verifica texto no protocolo SQL (OID 25), dia preservado,
+job concluído e pedido `em_triagem`, em cinco fusos e dois `DateStyle`, com prazo
+preenchido, `null`, bissexto/secular, virada do ano, limites 0001/9999 e transições
+de calendário em São Paulo/Apia. Roda em PGlite ou PostgreSQL real via `pg`.
+Esses testes não executam o engine n8n ou sua conexão Postgres. Importação,
+configuração de credencial e execução real continuam pendentes de homologação.
 
 ## Origem e compatibilidade
 
@@ -160,6 +173,7 @@ Fontes oficiais consultadas em 11/10/2026:
 - [Postgres e parâmetros](https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.postgres/)
 - [Versões Postgres na tag 2.41.6](https://github.com/n8n-io/n8n/blob/n8n%402.41.6/packages/nodes-base/nodes/Postgres/v2/actions/versionDescription.ts)
 - [Execute Query na tag 2.41.6](https://github.com/n8n-io/n8n/blob/n8n%402.41.6/packages/nodes-base/nodes/Postgres/v2/actions/database/executeQuery.operation.ts)
+- [Transporte Postgres: DATE nas versões 2.1–2.6](https://github.com/n8n-io/n8n/blob/n8n%402.41.6/packages/nodes-base/nodes/Postgres/transport/index.ts)
 - [If na tag 2.41.6](https://github.com/n8n-io/n8n/blob/n8n%402.41.6/packages/nodes-base/nodes/If/V2/IfV2.node.ts)
 
 O código autoral do portal não relicencia o runtime n8n. Sua licença e seus

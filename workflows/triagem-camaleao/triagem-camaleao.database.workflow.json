@@ -65,7 +65,7 @@
       "parameters": {
         "resource": "database",
         "operation": "executeQuery",
-        "query": "SELECT * FROM camaleao_private.claim_jobs($1::integer);",
+        "query": "SELECT id, request_id, organization_id, lease_token, attempts,\n  category, goal, channel, format, context,\n  to_char(desired_deadline::timestamp without time zone, 'YYYY-MM-DD') AS desired_deadline, urgency\nFROM camaleao_private.claim_jobs($1::integer);",
         "options": {
           "queryReplacement": "={{ [$json.batch_limit] }}",
           "queryBatching": "independently",
