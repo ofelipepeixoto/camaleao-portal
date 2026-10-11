@@ -65,7 +65,7 @@ export const fixtures = [
     category: 'peca_social', goal: 'Divulgar um serviço fictício',
     channel: 'Instagram', format: 'Post estático',
     context: 'Pedido fictício da organização A para verificar a fila de design.',
-    desired_deadline: null, urgency: 'normal',
+    desired_deadline: '2026-10-20', urgency: 'normal',
   },
   {
     id: '71000000-0000-4000-8000-000000000002',
