@@ -578,7 +578,12 @@ function createRequestDialog(): void {
   counter.setAttribute('aria-live', 'off');
   context.addEventListener('input', () => { counter.textContent = `${context.value.length.toLocaleString('pt-BR')} / 2.000`; });
   const contextField = field('Conte o contexto *', context, 'O que precisa acontecer? Inclua o público, a mensagem e o que já foi combinado. Pelo menos 10 caracteres.');
-  contextField.append(counter);
+  const briefingGuide = el('details', 'context-block');
+  briefingGuide.append(el('summary', '', 'O que incluir no briefing?'),
+    el('p', '', 'Descreva o público, a oferta e a ação que você espera. Indique o tom da marca e as condições da oferta.'),
+    el('p', '', 'Para números, resultados e depoimentos, informe a referência autorizada. Se faltar uma informação, escreva “a confirmar”.'),
+    el('p', '', 'Inclua apenas informações necessárias ao pedido. Evite senhas e dados pessoais. A equipe revisará o texto antes de apresentar uma entrega.'));
+  contextField.append(counter, briefingGuide);
   const optionalFields = el('div', 'field-grid', field('Canal', channel), field('Formato', format));
   category.addEventListener('change', () => {
     // These optional selectors guide the briefing without silently changing submitted values.

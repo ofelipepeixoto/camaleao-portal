@@ -217,3 +217,16 @@ test('B late private response after session change cannot repopulate dialog',asy
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByText('Entrega fictícia versão inicial:',{exact:false})).toHaveCount(0);
 });
+
+ test('orientações opcionais preservam o briefing e não enviam dados externos', async ({page}) => {
+  const external:string[]=[];
+  page.on('request',r=>{if(!r.url().startsWith('http://127.0.0.1:5173/'))external.push(r.url());});
+  await login(page); await fill(page, 'Briefing fictício informado pelo cliente, sem alteração automática.');
+  await page.getByText('O que incluir no briefing?',{exact:true}).click();
+  await expect(page.getByRole('dialog')).toContainText('a confirmar');
+  await expect(page.getByLabel('Conte o contexto *',{exact:true})).toHaveValue('Briefing fictício informado pelo cliente, sem alteração automática.');
+  expect((await new AxeBuilder({page}).analyze()).violations).toEqual([]);
+  await page.getByRole('button',{name:'Enviar pedido',exact:true}).click();
+  await expect(page.getByRole('status').filter({hasText:'registrado'})).toBeVisible();
+  expect(external).toEqual([]);
+});
