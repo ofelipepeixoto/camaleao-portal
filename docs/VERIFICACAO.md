@@ -3,6 +3,48 @@
 11/10/2026 UTC. Implementação preparada em camadas dependentes; revisão humana,
 merge e homologação de serviços continuam distintos dos resultados abaixo.
 
+## Correção do contrato de data na PR #4
+
+11/10/2026 UTC, após o commit `34ed29e`. Antes da correção, a consulta gerada
+foi executada em PostgreSQL 17.11 local com `pg`: prazo `2026-10-20` chegou como
+`Date`, e também foi testado após serialização ISO. Nos dois caminhos o Code
+embutido produziu `INVALID_REQUEST` e a função de conclusão gravou job `failed`.
+Isso reproduz o contrato de transporte; não é uma execução do engine n8n.
+
+A projeção do claim agora usa
+`to_char(desired_deadline::timestamp without time zone, 'YYYY-MM-DD')`, mantendo
+`null`. O cast evita mudança de dia por fuso; `to_char(date, ...)` sozinho mudou
+`2011-12-30` para `2011-12-31` em `Pacific/Apia` na reprodução local. A fixture
+passa a conter um prazo preenchido e outro nulo. JSONs regenerados pelo gerador.
+Nenhuma migração, grant, RLS ou regra de produto foi alterada.
+
+| Verificação desta correção | Resultado local |
+| --- | --- |
+| Instalação limpa (`npm ci`, Node 24.19.0) | Aprovada, lockfile preservado |
+| `npm test` / PGlite | 70 aprovados; cinco casos multi-conexão ignorados |
+| `npm test` / PostgreSQL 17.11 descartável | 75 aprovados; zero ignorados; processo Node com `TZ=Pacific/Kiritimati` |
+| Regressão SQL → driver → Code → conclusão | 20 combinações, dez prazos por combinação; aprovadas nos dois motores |
+| Regressão com Node em `TZ=America/Los_Angeles` / PGlite | 20 combinações aprovadas |
+| `npm run build` e `npm run build:demo` | Aprovados |
+| Playwright / Chromium 154.0.8037.57 do ambiente | Seis aprovados, incluindo axe |
+| Gerador `--check`, manifesto público e `git diff --check` | Aprovados |
+| `npm audit --audit-level=high` | Zero vulnerabilidades reportadas |
+
+A matriz combina cinco fusos SQL (UTC, São Paulo, Los Angeles, Kiritimati e
+Apia), dois `DateStyle` e linhas diretas/serializadas em JSON. Cobre `null`, prazo
+usual, bissexto secular, século não bissexto, virada do ano, anos 0001/9999 e
+transições de calendário. Confere OID texto, valor exato, job `completed`, pedido
+`em_triagem`, uma tentativa, evento único e ausência de novo claim. O teste novo
+falhou no código anterior com OID 1082 (`date`) no lugar de 25 (`text`).
+
+Os 75 testes Node incluem os 20 cenários novos, 14 testes de workflow e os demais
+contratos existentes. Os seis casos de navegador são adicionais; execuções em
+motores/fusos distintos se sobrepõem. PostgreSQL real aqui é um serviço local
+descartável com Auth fictício. A primeira tentativa de suíte reutilizou papéis
+da reprodução anterior e falhou no setup; a execução aprovada usou cluster novo.
+Importação e execução real no engine n8n continuam não realizadas. A CI do novo
+SHA deve ser consultada na PR; os resultados históricos abaixo não a substituem.
+
 ## Execuções locais confirmadas
 
 | Verificação | Resultado |
@@ -19,7 +61,8 @@ merge e homologação de serviços continuam distintos dos resultados abaixo.
 
 Os totais não devem ser somados novamente: os 19+17+13 compõem os 49 testes
 Node. Mais seis casos de navegador resultam em 55 casos locais aprovados.
-Os cinco ignorados só contam como aprovados após CI/PostgreSQL real.
+Os cinco ignorados localmente passaram posteriormente no PostgreSQL real da CI.
+Os testes locais e remotos se sobrepõem; não representam 115 testes diferentes.
 
 ## Evidência e limites
 
@@ -50,7 +93,24 @@ CI configura PostgreSQL 17.11 descartável, banco vazio camaleao_test_ci, conex�
 independentes e senha fictícia usada apenas pelo service local do job.
 Cinco testes: replay simultâneo, claims sem duplicidade, dois autores com mesma
 chave, conteúdo diferente simultâneo e limite diário sob duas submissões.
-Consultar o resultado do commit/PR; preparar CI não é afirmar execução aprovada.
+Execução confirmada: [run 38110486740](https://github.com/ofelipepeixoto/camaleao-portal/actions/runs/38110486740),
+commit `cd49eecd80e421cc8415e399040f2398bd4bb82c`, tentativa 1.
+
+| Evidência remota | Resultado |
+| --- | --- |
+| Job banco-e-contratos 114384831137 | 54 Node aprovados, zero falhas e zero ignorados |
+| SQL | PostgreSQL 17.11, conexões independentes; cinco casos concorrentes aprovados |
+| Job interface 114384831286 | Seis casos Playwright aprovados |
+| Builds | Real/desconectado e demo aprovados |
+| npm audit | Zero vulnerabilidades reportadas |
+| Scanner do manifesto | 42 arquivos examinados, sem padrões de segredo conhecidos |
+
+Total dessa execução: 60 casos aprovados (54 Node + seis navegador). Logs dos
+dois jobs foram lidos, além do status geral. A CI usa Auth de contrato e SDK
+simulado nos testes de adapter; não conecta aos projetos Supabase existentes.
+As PRs #1, #2 e #3 também tiveram sua CI aprovada para suas respectivas camadas.
+Este registro documenta o commit de código citado; commits posteriores de
+documentação devem consultar seu próprio check, sem herdar aprovação por suposição.
 
 ## Pendências concretas
 

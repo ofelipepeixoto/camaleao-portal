@@ -1,0 +1,218 @@
+{
+  "name": "Portal Camaleão A — fila manual, banco bloqueado",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "camaleao-manual",
+      "name": "Iniciar teste manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        180,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const db_enabled = false;\nconst batch_limit = 10;\nreturn [{ json: { db_enabled, batch_limit } }];"
+      },
+      "id": "camaleao-config",
+      "name": "Configuração manual",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        410,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "camaleao-db-gate",
+              "leftValue": "={{ $json.db_enabled === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "camaleao-if",
+      "name": "Banco liberado manualmente?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "SELECT id, request_id, organization_id, lease_token, attempts,\n  category, goal, channel, format, context,\n  to_char(desired_deadline::timestamp without time zone, 'YYYY-MM-DD') AS desired_deadline, urgency\nFROM camaleao_private.claim_jobs($1::integer);",
+        "options": {
+          "queryReplacement": "={{ [$json.batch_limit] }}",
+          "queryBatching": "independently",
+          "connectionTimeout": 10,
+          "delayClosingIdleConnection": 0,
+          "replaceEmptyStrings": false
+        }
+      },
+      "id": "camaleao-claim",
+      "name": "Reivindicar lote com lease",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        930,
+        180
+      ],
+      "retryOnFail": false,
+      "onError": "stopWorkflow"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "function triageRows(rows, fixture = false) {\n  if (!Array.isArray(rows) || rows.length > 10) throw new Error('INVALID_BATCH');\n  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\n  const queues = {\n    peca_social: 'design_social', campanha: 'estrategia_campanha',\n    site: 'web', automacao: 'automacoes',\n  };\n  const ids = new Set();\n  // Sem um envelope válido, não usar nem devolver um lease arbitrário ao banco.\n  for (const row of rows) {\n    if (!row || typeof row !== 'object' || Array.isArray(row)\n      || !['id', 'request_id', 'organization_id', 'lease_token'].every((key) => typeof row[key] === 'string' && uuid.test(row[key]))\n      || !Number.isInteger(row.attempts) || row.attempts < 1 || row.attempts > 3\n      || ids.has(row.id)) throw new Error('INVALID_JOB_ENVELOPE');\n    ids.add(row.id);\n  }\n  function text(value, minimum, maximum, optional = false) {\n    if (optional && (value === null || value === undefined)) return true;\n    if (typeof value !== 'string') return false;\n    const size = Array.from(value.trim()).length;\n    return size >= minimum && size <= maximum;\n  }\n  function date(value) {\n    if (value === null || value === undefined) return true;\n    if (typeof value !== 'string' || !/^\\d{4}-\\d{2}-\\d{2}$/.test(value)) return false;\n    const [year, month, day] = value.split('-').map(Number);\n    const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);\n    const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];\n    return year > 0 && month >= 1 && month <= 12 && day >= 1 && day <= days[month - 1];\n  }\n  return rows.map((row, index) => {\n    const problems = [];\n    if (!Object.hasOwn(queues, row.category)) problems.push('category');\n    if (!text(row.goal, 1, 120)) problems.push('goal');\n    if (!text(row.channel, 0, 80, true)) problems.push('channel');\n    if (!text(row.format, 0, 80, true)) problems.push('format');\n    if (!text(row.context, 10, 2000)) problems.push('context');\n    if (!date(row.desired_deadline)) problems.push('desired_deadline');\n    if (!['normal', 'urgente'].includes(row.urgency)) problems.push('urgency');\n    const valid = problems.length === 0;\n    const output = {\n      id: row.id, request_id: row.request_id, organization_id: row.organization_id,\n      attempts: row.attempts, category: row.category,\n      outcome: valid ? 'success' : 'validation_error',\n      error_code: valid ? null : 'INVALID_REQUEST',\n      status: valid ? 'em_triagem' : 'revisar_dados',\n      fila_sugerida: valid ? queues[row.category] : null,\n      requer_revisao_humana: true,\n      problemas: problems,\n    };\n    if (fixture) Object.assign(output, { simulation: true, storage_mutated: false, paid_ai: false });\n    else output.lease_token = row.lease_token;\n    return { json: output, pairedItem: { item: index } };\n  });\n}\nreturn triageRows($input.all().map(item => item.json));"
+      },
+      "id": "camaleao-triage-db",
+      "name": "Validar e sugerir fila",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "database",
+        "operation": "executeQuery",
+        "query": "SELECT camaleao_private.finish_job($1::uuid, $2::uuid, $3::text, $4::text) AS result;",
+        "options": {
+          "queryReplacement": "={{ [$json.id, $json.lease_token, $json.outcome, $json.error_code] }}",
+          "queryBatching": "independently",
+          "connectionTimeout": 10,
+          "delayClosingIdleConnection": 0,
+          "replaceEmptyStrings": false
+        }
+      },
+      "id": "camaleao-finish",
+      "name": "Concluir job com token do lease",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1470,
+        180
+      ],
+      "retryOnFail": false,
+      "onError": "stopWorkflow"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "return [{ json: { status: 'DB_DISABLED', storage_mutated: false, paid_ai: false, mensagem: 'Teste manual bloqueado: o banco não foi consultado. Use a triagem fictícia para testar agora.' } }];"
+      },
+      "id": "camaleao-blocked",
+      "name": "Banco permanece bloqueado",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        930,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "Iniciar teste manual": {
+      "main": [
+        [
+          {
+            "node": "Configuração manual",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuração manual": {
+      "main": [
+        [
+          {
+            "node": "Banco liberado manualmente?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Banco liberado manualmente?": {
+      "main": [
+        [
+          {
+            "node": "Reivindicar lote com lease",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Banco permanece bloqueado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reivindicar lote com lease": {
+      "main": [
+        [
+          {
+            "node": "Validar e sugerir fila",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar e sugerir fila": {
+      "main": [
+        [
+          {
+            "node": "Concluir job com token do lease",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo",
+    "executionTimeout": 60,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false
+  },
+  "active": false,
+  "tags": []
+}

@@ -12,6 +12,8 @@ ou uma integração homologada com Supabase/n8n.** Veja [verificação](docs/VER
 
 ## Comece por aqui
 
+- [Código completo da entrega A: branch feat/a4-triagem](https://github.com/ofelipepeixoto/camaleao-portal/tree/feat/a4-triagem)
+- [Ordem das quatro PRs e continuidade no Codex](docs/REVISAO.md)
 - [Escopo e critérios da entrega A](docs/ENTREGA-A.md)
 - [Operação, homologação e continuidade no Codex](docs/OPERACAO.md)
 - [Integrações e situação dos plugins](docs/INTEGRACOES.md)
