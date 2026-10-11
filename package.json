@@ -1,0 +1,31 @@
+{
+  "name": "camaleao-portal",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "demo": "vite --mode demo --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "build:demo": "tsc --noEmit && vite build --mode demo --outDir dist-demo",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "node --experimental-strip-types --test tests/*.test.mjs",
+    "test:ui": "playwright test",
+    "test:db": "node --test tests/db.test.mjs",
+    "generate:workflow": "node scripts/generate-workflow.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.117.3"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@electric-sql/pglite": "0.5.8",
+    "@playwright/test": "1.64.0",
+    "pg": "8.16.3",
+    "typescript": "7.0.2",
+    "vite": "8.3.4"
+  }
+}
