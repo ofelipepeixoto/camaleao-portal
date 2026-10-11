@@ -222,3 +222,101 @@ test('concurrent submissions cannot overrun organization daily quota (server Pos
     assert.equal(await count('public.camaleao_requests'),20);
   } finally { await other.close(); }
 });
+
+const present = async (request,key=randomUUID(),expected=null,content='Entrega fictícia: texto revisado para divulgar o serviço.',connection=db,user=ids.operator,session=ids.sessionOperator,org=ids.orgA) =>
+  (await asActor(connection,user,session,'select public.camaleao_present_delivery($1,$2,$3,$4,$5) as result',[org,request.id,key,expected,content])).rows[0].result;
+const decide = async (request,delivery,key=randomUUID(),outcome='approved',adjustment='',connection=db,user=ids.alice,session=ids.sessionA,org=ids.orgA) =>
+  (await asActor(connection,user,session,'select public.camaleao_decide_delivery($1,$2,$3,$4,$5,$6,$7) as result',[org,request.id,delivery.id,delivery.content_hash,key,outcome,adjustment])).rows[0].result;
+
+test('B T06 exact immutable version/hash, authenticated actor and server timestamp',async () => {
+  const request=await createRequest(db,randomUUID()), delivery=await present(request);
+  const {createHash}=await import('node:crypto');
+  assert.equal(delivery.content_hash,createHash('sha256').update(delivery.content).digest('hex'));
+  const decision=await decide(request,delivery);
+  assert.equal(decision.organization_id,ids.orgA); assert.equal(decision.request_id,request.id);
+  assert.equal(decision.actor_id,ids.alice); assert.equal(decision.version,1);
+  assert.equal(decision.content_hash,delivery.content_hash); assert.equal(decision.delivery_id,delivery.id);
+  assert.ok(Math.abs(Date.now()-new Date(decision.decided_at).getTime())<10000);
+  await rejectsCode(()=>db.query('update public.camaleao_deliveries set content=$1 where id=$2',['alterado',delivery.id]),'42501');
+  await rejectsCode(()=>db.query('delete from public.camaleao_decisions where id=$1',[decision.id]),'42501');
+  assert.equal(await count('camaleao_private.delivery_events'),2);
+});
+test('B T07 newer delivery invalidates current approval; stale version/hash and replay are rejected',async () => {
+  const request=await createRequest(db,randomUUID()), first=await present(request),key=randomUUID();
+  await decide(request,first,key);
+  const second=await present(request,randomUUID(),first.id,'Uma nova entrega fictícia com conteúdo revisado.');
+  assert.equal(second.version,2);
+  await rejectsCode(()=>decide(request,first,key),'40001');
+  await rejectsCode(()=>decide(request,{...second,content_hash:first.content_hash}),'40001');
+  const old=(await db.query('select * from public.camaleao_decisions')).rows; assert.equal(old.length,1);
+  assert.equal(old[0].delivery_id,first.id);
+  assert.equal((await decide(request,second)).version,2);
+});
+test('B T08 same click returns one decision; conflicting click and fresh IDs cannot overwrite it',async () => {
+  const request=await createRequest(db,randomUUID()),delivery=await present(request),key=randomUUID();
+  const first=await decide(request,delivery,key),repeat=await decide(request,delivery,key);
+  assert.deepEqual(repeat,first);
+  await rejectsCode(()=>decide(request,delivery,key,'changes_requested','Ajustar o texto da mensagem.'),'23505');
+  await rejectsCode(()=>decide(request,delivery,randomUUID()),'23505');
+  assert.equal(await count('public.camaleao_decisions'),1); assert.equal(await count('camaleao_private.delivery_events'),2);
+});
+test('B presentation replay is immutable and expected version prevents accidental concurrent replacement',async () => {
+  const request=await createRequest(db,randomUUID()),key=randomUUID(),first=await present(request,key);
+  assert.deepEqual(await present(request,key),first);
+  await rejectsCode(()=>present(request,key,null,'Outro conteúdo fictício para a entrega.'),'23505');
+  await rejectsCode(()=>present(request,randomUUID(),null),'40001');
+  assert.equal(await count('public.camaleao_deliveries'),1);
+});
+test('B adjustment requires explanation; approval refuses free text and invalid result',async () => {
+  const request=await createRequest(db,randomUUID()),delivery=await present(request);
+  await rejectsCode(()=>decide(request,delivery,randomUUID(),'changes_requested','curto'),'22023');
+  await rejectsCode(()=>decide(request,delivery,randomUUID(),'approved','texto indevido'),'22023');
+  await rejectsCode(()=>decide(request,delivery,randomUUID(),'outro'),'22023');
+  assert.equal((await decide(request,delivery,randomUUID(),'changes_requested','Corrigir a mensagem sobre o serviço.')).outcome,'changes_requested');
+});
+test('B roles, cross-organization access, expired/revoked session and membership fail closed',async () => {
+  const request=await createRequest(db,randomUUID()),delivery=await present(request);
+  await rejectsCode(()=>present(request,randomUUID(),delivery.id,delivery.content,db,ids.alice,ids.sessionA),'42501');
+  await rejectsCode(()=>decide(request,delivery,randomUUID(),'approved','',db,ids.operator,ids.sessionOperator),'42501');
+  await rejectsCode(()=>decide(request,delivery,randomUUID(),'approved','',db,ids.bob,ids.sessionB,ids.orgB),'42501');
+  const read=await asActor(db,ids.bob,ids.sessionB,'select * from public.camaleao_deliveries');assert.equal(read.rows.length,0);
+  await rejectsCode(()=>asActor(db,ids.alice,ids.sessionA,'update public.camaleao_deliveries set content=$1',['fake']),'42501');
+  await rejectsCode(()=>asActor(db,ids.alice,ids.sessionA,'select public.camaleao_decide_delivery($1,$2,$3,$4,$5,$6,$7)',[ids.orgA,request.id,delivery.id,delivery.content_hash,randomUUID(),'approved',''],{exp:1}),'42501');
+  await db.query('update public.camaleao_memberships set active=false where user_id=$1',[ids.alice]);
+  await rejectsCode(()=>decide(request,delivery),'42501');
+  assert.equal((await asActor(db,ids.alice,ids.sessionA,'select * from public.camaleao_deliveries')).rows.length,0);
+  await db.query('update public.camaleao_memberships set active=true where user_id=$1',[ids.alice]);
+  await db.query('delete from auth.sessions where id=$1',[ids.sessionA]);
+  await rejectsCode(()=>decide(request,delivery),'42501');
+  assert.equal((await asActor(db,ids.alice,ids.sessionA,'select * from public.camaleao_decisions')).rows.length,0);
+});
+test('B injected audit failure rolls back presentation and decision; retry works',async () => {
+  const request=await createRequest(db,randomUUID());
+  const inject=()=>db.exec("create function camaleao_private.test_b_failure() returns trigger language plpgsql as $$begin raise exception 'SIMULATED_FAILURE'; end;$$; create trigger test_b_fail before insert on camaleao_private.delivery_events for each row execute function camaleao_private.test_b_failure();");
+  const remove=()=>db.exec('drop trigger test_b_fail on camaleao_private.delivery_events; drop function camaleao_private.test_b_failure();');
+  await inject(); try {await rejectsCode(()=>present(request),'P0001');assert.equal(await count('public.camaleao_deliveries'),0);} finally {await remove();}
+  const delivery=await present(request),key=randomUUID();
+  await inject(); try {await rejectsCode(()=>decide(request,delivery,key),'P0001');assert.equal(await count('public.camaleao_decisions'),0);} finally {await remove();}
+  await decide(request,delivery,key); assert.equal(await count('public.camaleao_decisions'),1);
+});
+test('B concurrent duplicate decisions have one effect (server PostgreSQL only)',{skip:!process.env.DB_TEST_URL},async () => {
+  const request=await createRequest(db,randomUUID()),delivery=await present(request),key=randomUUID(),other=await db.connect();
+  try {const [a,b]=await Promise.all([decide(request,delivery,key),decide(request,delivery,key,'approved','',other)]); assert.equal(a.id,b.id);assert.equal(await count('public.camaleao_decisions'),1);} finally {await other.close();}
+});
+test('B concurrent conflicting decisions yield one winner (server PostgreSQL only)',{skip:!process.env.DB_TEST_URL},async () => {
+  const request=await createRequest(db,randomUUID()),delivery=await present(request),other=await db.connect();
+  try {const results=await Promise.allSettled([decide(request,delivery),decide(request,delivery,randomUUID(),'changes_requested','Alterar o texto principal da entrega.',other)]);assert.equal(results.filter(r=>r.status==='fulfilled').length,1);assert.equal(results.find(r=>r.status==='rejected').reason.code,'23505');assert.equal(await count('public.camaleao_decisions'),1);} finally {await other.close();}
+});
+test('B concurrent presentation and old-version decision serialize (server PostgreSQL only)',{skip:!process.env.DB_TEST_URL},async () => {
+  const request=await createRequest(db,randomUUID()),delivery=await present(request),other=await db.connect();
+  try {
+    const results=await Promise.allSettled([present(request,randomUUID(),delivery.id,'Nova versão fictícia apresentada pela equipe.'),decide(request,delivery,randomUUID(),'approved','',other)]);
+    assert.equal(results[0].status,'fulfilled');
+    if(results[1].status==='rejected')assert.equal(results[1].reason.code,'40001');
+    assert.equal((await db.query('select count(*)::int n from public.camaleao_decisions where delivery_id=$1',[results[0].value.id])).rows[0].n,0);
+  } finally {await other.close();}
+});
+test('B concurrent presentations with same expected head have one winner (server PostgreSQL only)',{skip:!process.env.DB_TEST_URL},async () => {
+  const request=await createRequest(db,randomUUID()),other=await db.connect();
+  try {const results=await Promise.allSettled([present(request),present(request,randomUUID(),null,'Segunda apresentação concorrente fictícia.',other)]);assert.equal(results.filter(r=>r.status==='fulfilled').length,1);assert.equal(results.find(r=>r.status==='rejected').reason.code,'40001');assert.equal(await count('public.camaleao_deliveries'),1);} finally {await other.close();}
+});
