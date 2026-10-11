@@ -20,6 +20,13 @@ ou uma integração homologada com Supabase/n8n.** Veja [verificação](docs/VER
 - [Banco e testes de autorização](supabase/README.md)
 - [Workflows manuais n8n](workflows/triagem-camaleao/README.md)
 
+## Entrega B em revisão
+
+Na branch `feat/b2-interface`, a equipe apresenta versões textuais e o cliente
+aprova ou pede ajustes. Veja [B1: contrato SQL](docs/ENTREGA-B1.md) e
+[B2: demo, testes e limites](docs/ENTREGA-B2.md). Anexos privados continuam fora
+do escopo até homologar Storage.
+
 ## Experimentar com dados fictícios
 
 Node 24+. Depois de clonar a branch completa de implementação:

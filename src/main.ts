@@ -2,6 +2,7 @@ import { gateway, isDemo } from './gateway';
 import type { Membership, PortalRequest, RequestPayload, User } from './model';
 import { brandedName, button, el, field, icon, input, modal, select } from './ui';
 import './styles.css';
+import { openDeliveryDialog, clearDeliveryDrafts } from './delivery-ui';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('Elemento principal indisponível.');
@@ -106,6 +107,7 @@ function clearPrivateState(): void {
   categoryFilter = '';
   statusFilter = '';
   uncertainDrafts.clear();
+  clearDeliveryDrafts();
   dismissDialog();
 }
 
@@ -292,7 +294,7 @@ function sidebar(): HTMLElement {
   if (organization?.role === 'operator') {
     nav.append(el('p', 'nav-caption team-caption', 'EQUIPE'), navItem('Fila de triagem', 'queue', 'queue', requests.filter((request) => request.status === 'recebido').length));
   }
-  const future = el('div', 'future-card', el('div', 'future-icon', icon('spark')), el('strong', '', 'Aprovações, em breve'), el('p', '', 'Nesta primeira entrega, você cria pedidos e acompanha a triagem. A revisão de entregas vem na próxima etapa.'));
+  const future = el('div', 'future-card', el('div', 'future-icon', icon('spark')), el('strong', '', 'Entregas e decisões'), el('p', '', 'Abra um pedido para revisar a versão apresentada pela equipe, aprovar ou pedir ajustes.'));
   const logout = button('', 'logout-button', () => { void logoutSession(); });
   logout.append(icon('logOut'), 'Sair da conta');
   const email = user?.email || 'Acesso por convite';
@@ -466,7 +468,7 @@ function historyPanel(): HTMLElement {
     if (request.updatedAt !== request.createdAt) entries.push({request, at: request.updatedAt, type: 'updated'});
     return entries;
   }).sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
-  const panel = el('section', 'history-panel', el('div', 'panel-heading', el('div', 'panel-title', el('h2', '', 'Registros dos pedidos')), button('Atualizar', 'text-button', () => { void refresh(); })), el('p', 'history-help', 'Nesta entrega, o histórico mostra a criação e a última atualização. Revisões de arquivos e decisões de aprovação serão adicionadas depois.'));
+  const panel = el('section', 'history-panel', el('div', 'panel-heading', el('div', 'panel-title', el('h2', '', 'Registros dos pedidos')), button('Atualizar', 'text-button', () => { void refresh(); })), el('p', 'history-help', 'Nesta entrega, o histórico mostra a criação e a última atualização. Para consultar versões e decisões, abra o pedido e escolha Entregas e decisões. Anexos ainda não estão disponíveis.'));
   if (loading) panel.append(el('div', 'loading-list', el('span', 'spinner'), el('span', '', 'Carregando registros…')));
   else if (!events.length) panel.append(el('div', 'empty-state', icon('clock'), el('h3', '', 'O histórico começa no primeiro pedido.'), el('p', '', 'Os registros aparecerão aqui depois que você enviar uma solicitação.')));
   else {
@@ -493,6 +495,16 @@ function detailsDialog(request: PortalRequest): void {
   const definitions = el('dl', 'details-grid');
   for (const [label, value] of rows) definitions.append(el('div', '', el('dt', '', label), el('dd', '', value)));
   details.append(definitions, el('section', 'context-block', el('h3', '', 'Contexto do pedido'), el('p', '', request.context)), el('div', 'notice detail-note', icon('clock'), el('span', '', request.status === 'em_triagem' ? 'A equipe está organizando o pedido. O prazo informado é uma preferência; o compromisso de entrega será combinado com você.' : 'Seu pedido foi registrado. A equipe fará a triagem manual antes de definir os próximos passos e o prazo de entrega.')));
+  details.append(button('Entregas e decisões', 'button button-primary', () => {
+    const epoch = sessionEpoch;
+    const org = organizationId;
+    dismissDialog();
+    openDeliveryDialog({ gateway, request, operator: currentMembership()?.role === 'operator',
+      valid: () => epoch === sessionEpoch && org === organizationId && Boolean(user),
+      accessDenied: () => { void invalidateAccess(); },
+      register: dialog => { openDialog = dialog; dialog.addEventListener('close', () => { if (openDialog === dialog) openDialog = null; }); },
+    });
+  }));
   const result = modal(`Pedido ${request.protocol}`, 'Os detalhes que você compartilhou com a Camaleão.', details);
   openDialog = result.dialog;
   result.dialog.addEventListener('close', () => { if (openDialog === result.dialog) openDialog = null; });

@@ -97,3 +97,117 @@ test('desktop acessível e visual da entrega', async ({page}) => {
   expect((await new AxeBuilder({page}).analyze()).violations).toEqual([]);
   await page.screenshot({path:'artifacts/portal-desktop.png',fullPage:true});
 });
+
+async function openDeliveries(page: import('@playwright/test').Page) {
+  await page.getByRole('button', {name:/Abrir pedido/}).click();
+  await page.getByRole('button', {name:'Entregas e decisões',exact:true}).click();
+}
+async function presentText(page: import('@playwright/test').Page,content:string,first=true) {
+  await page.getByLabel('Conteúdo da entrega *',{exact:true}).fill(content);
+  await page.getByRole('button',{name:first?'Apresentar versão':'Apresentar nova versão',exact:true}).click();
+  await expect(page.getByRole('status').filter({hasText:'Versão apresentada'})).toBeVisible();
+}
+async function switchAccount(page: import('@playwright/test').Page,who:string) {
+  await page.keyboard.press('Escape');
+  await page.getByRole('button',{name:'Sair da conta'}).click();
+  await page.getByRole('button',{name:who,exact:true}).click();
+  await expect(page.getByRole('button',{name:'Novo pedido',exact:true})).toBeEnabled();
+}
+async function prepareDelivery(page: import('@playwright/test').Page) {
+  await login(page);await fill(page);await page.getByRole('button',{name:'Enviar pedido',exact:true}).click();
+  await expect(page.locator('.request-list li')).toHaveCount(1);
+  await switchAccount(page,'Equipe Camaleão');await openDeliveries(page);
+  await presentText(page,'Entrega fictícia versão inicial: divulgar o novo serviço no bairro.');
+}
+test('B apresentar, aprovar versão exata, histórico e nova versão sem aprovação herdada',async({page})=>{
+  await prepareDelivery(page);await switchAccount(page,'Cliente Aurora');await openDeliveries(page);
+  await expect(page.getByRole('heading',{name:'Versão 1 · atual'})).toHaveCount(2);
+  await expect(page.getByText(/SHA-256: [a-f0-9]{64}/)).toHaveCount(2);
+  await page.getByRole('button',{name:'Aprovar',exact:true}).dblclick();
+  await expect(page.getByText('Aprovada · versão 1',{exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Aprovar',exact:true})).toHaveCount(0);
+  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('camaleao-fictitious-deliveries-v1')!).decisions.length)).toBe(1);
+  await switchAccount(page,'Equipe Camaleão');await openDeliveries(page);
+  await presentText(page,'Segunda versão fictícia: mensagem revisada para a campanha.',false);
+  await switchAccount(page,'Cliente Aurora');await openDeliveries(page);
+  await expect(page.getByRole('button',{name:'Aprovar',exact:true})).toBeVisible();
+  await expect(page.getByText('Versão 1 · anterior',{exact:true})).toBeVisible();
+  await expect(page.getByText('Registro anterior; não é a decisão vigente.',{exact:true})).toBeVisible();
+});
+test('B celular, ajustes guiados, persistência e texto seguro sem serviços externos',async({page})=>{
+  const external:string[]=[];page.on('request',r=>{if(!r.url().startsWith('http://127.0.0.1:5173/'))external.push(r.url());});
+  await page.setViewportSize({width:390,height:844});await prepareDelivery(page);
+  await switchAccount(page,'Cliente Aurora');await openDeliveries(page);
+  await page.getByRole('button',{name:'Pedir ajustes',exact:true}).click();
+  const text=page.getByLabel('O que precisa mudar? *',{exact:true});await expect(text).toBeFocused();
+  await text.fill('<img src=x onerror=alert(1)> Ajustar a descrição do serviço.');
+  expect((await new AxeBuilder({page}).analyze()).violations).toEqual([]);
+  expect(await page.getByRole('dialog').evaluate(e=>e.scrollWidth<=e.clientWidth)).toBe(true);
+  await page.getByRole('button',{name:'Enviar ajuste',exact:true}).click();
+  await expect(page.getByText('Ajustes solicitados · versão 1',{exact:true})).toBeVisible();
+  expect(await page.getByRole('dialog').evaluate(e=>e.contains(document.activeElement))).toBe(true);
+  await expect(page.locator('img')).toHaveCount(0);
+  await page.screenshot({path:'artifacts/b2-mobile.png',fullPage:true});
+  await switchAccount(page,'Cliente Aurora');await openDeliveries(page);
+  await expect(page.getByText('Ajustes solicitados · versão 1',{exact:true})).toBeVisible();
+  expect(external).toEqual([]);
+});
+test('B stale version conflict refreshes content and requires a new deliberate decision',async({page})=>{
+  await prepareDelivery(page);await switchAccount(page,'Cliente Aurora');await openDeliveries(page);
+  // Another fictional team presentation while this dialog retains the old version.
+  await page.evaluate(async()=>{
+    const all=JSON.parse(localStorage.getItem('camaleao-fictitious-deliveries-v1')!);
+    const first=all.deliveries[0];const content='Versão mais recente fictícia apresentada em outra sessão.';
+    const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(content)))).map(b=>b.toString(16).padStart(2,'0')).join('');
+    all.deliveries.push({...first,id:crypto.randomUUID(),version:2,content,contentHash:hash});
+    localStorage.setItem('camaleao-fictitious-deliveries-v1',JSON.stringify(all));
+  });
+  await page.getByRole('button',{name:'Aprovar',exact:true}).click();
+  await expect(page.getByRole('alert')).toContainText('Confira o conteúdo atualizado antes de decidir');
+  await expect(page.getByText('Versão mais recente fictícia apresentada em outra sessão.',{exact:true})).toHaveCount(2);
+  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('camaleao-fictitious-deliveries-v1')!).decisions.length)).toBe(0);
+  await page.getByRole('button',{name:'Aprovar',exact:true}).click();
+  await expect(page.getByText('Aprovada · versão 2',{exact:true})).toBeVisible();
+  await page.screenshot({path:'artifacts/b2-desktop.png',fullPage:true});
+});
+test('B another fictional organization sees no private delivery and logout clears dialog',async({page})=>{
+  await prepareDelivery(page);await switchAccount(page,'Cliente Horizonte');
+  await expect(page.locator('.request-list li')).toHaveCount(0);
+  await expect(page.getByText('Entrega fictícia versão inicial:',{exact:false})).toHaveCount(0);
+  await page.getByRole('button',{name:'Sair da conta'}).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+test('B lost response retries same decision and never duplicates effective result',async({page})=>{
+  await prepareDelivery(page);await switchAccount(page,'Cliente Aurora');await openDeliveries(page);
+  await page.evaluate(async()=>{
+    const {gateway}=await import('/src/gateway.ts');
+    const original=gateway.decideDelivery.bind(gateway);let once=true;
+    gateway.decideDelivery=async(...args:Parameters<typeof original>)=>{
+      const result=await original(...args);if(once){once=false;throw new Error('SIMULATED_LOST_RESPONSE');}return result;
+    };
+  });
+  await page.getByRole('button',{name:'Aprovar',exact:true}).click();
+  await expect(page.getByRole('alert')).toContainText('Não foi possível confirmar');
+  await page.keyboard.press('Escape');await openDeliveries(page);
+  await page.getByRole('button',{name:'Confirmar envio anterior',exact:true}).click();
+  await expect(page.getByText('Aprovada · versão 1',{exact:true})).toBeVisible();
+  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('camaleao-fictitious-deliveries-v1')!).decisions.length)).toBe(1);
+});
+test('B late private response after session change cannot repopulate dialog',async({page})=>{
+  await prepareDelivery(page);await switchAccount(page,'Cliente Aurora');
+  await page.evaluate(async()=>{
+    const {gateway}=await import('/src/gateway.ts');
+    const original=gateway.deliveryHistory.bind(gateway);
+    gateway.deliveryHistory=async(...args:Parameters<typeof original>)=>{
+      const rows=await original(...args);
+      await gateway.signOut();
+      return rows;
+    };
+  });
+  await page.getByRole('button',{name:/Abrir pedido/}).click();
+  await page.getByRole('button',{name:'Entregas e decisões',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Cliente Aurora',exact:true})).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByText('Entrega fictícia versão inicial:',{exact:false})).toHaveCount(0);
+});

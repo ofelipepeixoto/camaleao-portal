@@ -1,4 +1,4 @@
-import type { Gateway, Membership, PortalRequest, RequestPayload, User } from './model.ts';
+import type { Gateway, Membership, PortalRequest, RequestPayload, User, Delivery, DeliveryDecision, DeliveryHistory, PresentDelivery, DecideDelivery } from './model.ts';
 import { PortalError } from './supabase-gateway.ts';
 import { validatePayload } from './validation.ts';
 
@@ -48,4 +48,64 @@ export class DemoGateway implements Gateway {
     this.storage.setItem(KEY, JSON.stringify([...rows, row]));
     return row;
   }
+  private historyRows(): DeliveryHistory {
+    try { return JSON.parse(this.storage.getItem('camaleao-fictitious-deliveries-v1') ?? '{"deliveries":[],"decisions":[]}'); }
+    catch { return {deliveries:[],decisions:[]}; }
+  }
+  private saveHistory(rows: DeliveryHistory): void {
+    this.storage.setItem('camaleao-fictitious-deliveries-v1',JSON.stringify(rows));
+  }
+  private async deliveryAccess(orgId: string, requestId: string, role?: Membership['role']): Promise<void> {
+    if (!(await this.memberships()).some(m => m.organizationId === orgId && (!role || m.role === role)) ||
+      !this.rows().some(r => r.organizationId === orgId && r.id === requestId))
+      throw new PortalError('Acesso fictício não disponível.', 'access_denied');
+  }
+  async deliveryHistory(orgId: string, requestId: string): Promise<DeliveryHistory> {
+    await this.deliveryAccess(orgId,requestId);
+    const all=this.historyRows();
+    return {deliveries:all.deliveries.filter(d=>d.organizationId===orgId && d.requestId===requestId).sort((a,b)=>b.version-a.version),
+      decisions:all.decisions.filter(d=>d.organizationId===orgId && d.requestId===requestId).sort((a,b)=>b.version-a.version)};
+  }
+  async presentDelivery(orgId: string, requestId: string, payload: PresentDelivery): Promise<Delivery> {
+    await this.deliveryAccess(orgId,requestId,'operator');
+    const content=payload.content.trim();
+    if(content.length<10 || content.length>8000) throw new PortalError('Confira o conteúdo.', 'validation');
+    const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(content))))
+      .map(b=>b.toString(16).padStart(2,'0')).join('');
+    await this.deliveryAccess(orgId,requestId,'operator');
+    const all=this.historyRows();
+    const latest=all.deliveries.filter(d=>d.requestId===requestId && d.organizationId===orgId).sort((a,b)=>b.version-a.version)[0];
+    const existing=all.deliveries.find(d=>d.id===payload.deliveryId);
+    if(existing) {
+      if(existing.requestId!==requestId || existing.organizationId!==orgId || existing.createdBy!==this.current!.id || existing.content!==content || latest?.id!==existing.id)
+        throw new PortalError('Apresentação conflitante.', 'conflict');
+      return existing;
+    }
+    if((latest?.id ?? null)!==payload.expectedDeliveryId) throw new PortalError('Há nova versão.', 'version_conflict');
+    const row: Delivery={id:payload.deliveryId,organizationId:orgId,requestId,version:(latest?.version ?? 0)+1,
+      content,contentHash:hash,createdBy:this.current!.id,createdAt:new Date().toISOString()};
+    all.deliveries.push(row);this.saveHistory(all);return row;
+  }
+  async decideDelivery(orgId: string, requestId: string, payload: DecideDelivery): Promise<DeliveryDecision> {
+    await this.deliveryAccess(orgId,requestId,'client');
+    const adjustment=payload.adjustment.trim();
+    if(!['approved','changes_requested'].includes(payload.outcome) ||
+      (payload.outcome==='approved' && adjustment!=='') || (payload.outcome==='changes_requested' && (adjustment.length<10 || adjustment.length>2000)))
+      throw new PortalError('Confira o ajuste.', 'validation');
+    const all=this.historyRows();
+    const latest=all.deliveries.filter(d=>d.requestId===requestId && d.organizationId===orgId).sort((a,b)=>b.version-a.version)[0];
+    if(!latest || latest.id!==payload.deliveryId || latest.contentHash!==payload.contentHash) throw new PortalError('Há nova versão.', 'version_conflict');
+    const existing=all.decisions.find(d=>d.organizationId===orgId && (d as DeliveryDecision & {clientDecisionId:string}).clientDecisionId===payload.decisionId);
+    if(existing) {
+      if(existing.requestId!==requestId || existing.deliveryId!==payload.deliveryId || existing.actorId!==this.current!.id || existing.outcome!==payload.outcome || existing.adjustment!==adjustment)
+        throw new PortalError('Decisão conflitante.', 'conflict');
+      return existing;
+    }
+    if(all.decisions.some(d=>d.deliveryId===payload.deliveryId)) throw new PortalError('Versão já decidida.', 'conflict');
+    const row: DeliveryDecision & {clientDecisionId:string}={id:crypto.randomUUID(),organizationId:orgId,requestId,
+      deliveryId:payload.deliveryId,version:latest.version,contentHash:payload.contentHash,actorId:this.current!.id,
+      outcome:payload.outcome,adjustment,decidedAt:new Date().toISOString(),clientDecisionId:payload.decisionId};
+    all.decisions.push(row);this.saveHistory(all);return row;
+  }
+
 }
