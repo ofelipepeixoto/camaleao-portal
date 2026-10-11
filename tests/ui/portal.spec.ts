@@ -121,9 +121,11 @@ async function prepareDelivery(page: import('@playwright/test').Page) {
 }
 test('B apresentar, aprovar versão exata, histórico e nova versão sem aprovação herdada',async({page})=>{
   await prepareDelivery(page);await switchAccount(page,'Cliente Aurora');await openDeliveries(page);
-  await expect(page.getByRole('heading',{name:'Versão 1 · atual'})).toHaveCount(2);
-  await expect(page.getByText(/SHA-256: [a-f0-9]{64}/)).toHaveCount(2);
+  await expect(page.getByRole('heading',{name:'Versão 1 · atual'})).toHaveCount(1);
+  await expect(page.getByText(/SHA-256: [a-f0-9]{64}/)).toHaveCount(1);
   await page.getByRole('button',{name:'Aprovar',exact:true}).dblclick();
+  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('camaleao-fictitious-deliveries-v1')!).decisions.length)).toBe(0);
+  await page.getByRole('button',{name:/Confirmar aprovação da versão/}).dblclick();
   await expect(page.getByText('Aprovada · versão 1',{exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:'Aprovar',exact:true})).toHaveCount(0);
   expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('camaleao-fictitious-deliveries-v1')!).decisions.length)).toBe(1);
@@ -131,6 +133,7 @@ test('B apresentar, aprovar versão exata, histórico e nova versão sem aprova�
   await presentText(page,'Segunda versão fictícia: mensagem revisada para a campanha.',false);
   await switchAccount(page,'Cliente Aurora');await openDeliveries(page);
   await expect(page.getByRole('button',{name:'Aprovar',exact:true})).toBeVisible();
+  await page.getByText('Versões anteriores (1)',{exact:true}).click();
   await expect(page.getByText('Versão 1 · anterior',{exact:true})).toBeVisible();
   await expect(page.getByText('Registro anterior; não é a decisão vigente.',{exact:true})).toBeVisible();
 });
@@ -163,10 +166,12 @@ test('B stale version conflict refreshes content and requires a new deliberate d
     localStorage.setItem('camaleao-fictitious-deliveries-v1',JSON.stringify(all));
   });
   await page.getByRole('button',{name:'Aprovar',exact:true}).click();
+  await page.getByRole('button',{name:/Confirmar aprovação da versão/}).click();
   await expect(page.getByRole('alert')).toContainText('Confira o conteúdo atualizado antes de decidir');
-  await expect(page.getByText('Versão mais recente fictícia apresentada em outra sessão.',{exact:true})).toHaveCount(2);
+  await expect(page.getByText('Versão mais recente fictícia apresentada em outra sessão.',{exact:true})).toHaveCount(1);
   expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('camaleao-fictitious-deliveries-v1')!).decisions.length)).toBe(0);
   await page.getByRole('button',{name:'Aprovar',exact:true}).click();
+  await page.getByRole('button',{name:/Confirmar aprovação da versão/}).click();
   await expect(page.getByText('Aprovada · versão 2',{exact:true})).toBeVisible();
   await page.screenshot({path:'artifacts/b2-desktop.png',fullPage:true});
 });
@@ -188,6 +193,7 @@ test('B lost response retries same decision and never duplicates effective resul
     };
   });
   await page.getByRole('button',{name:'Aprovar',exact:true}).click();
+  await page.getByRole('button',{name:/Confirmar aprovação da versão/}).click();
   await expect(page.getByRole('alert')).toContainText('Não foi possível confirmar');
   await page.keyboard.press('Escape');await openDeliveries(page);
   await page.getByRole('button',{name:'Confirmar envio anterior',exact:true}).click();

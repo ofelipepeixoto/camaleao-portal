@@ -7,6 +7,7 @@ const ORGS = [{ organizationId: '10000000-0000-4000-8000-000000000001', organiza
   { organizationId: '10000000-0000-4000-8000-000000000002', organizationName: 'Horizonte Café' }];
 const KEY = 'camaleao-fictitious-demo-v1';
 const USERS = ['aurora@exemplo.test', 'horizonte@exemplo.test', 'equipe@exemplo.test'];
+export const DEMO_EXAMPLE_ID = '90000000-0000-4000-8000-000000000090';
 export class DemoGateway implements Gateway {
   private current: User | null = null;
   private listeners = new Set<(u: User | null) => void>();
@@ -54,6 +55,29 @@ export class DemoGateway implements Gateway {
   }
   private saveHistory(rows: DeliveryHistory): void {
     this.storage.setItem('camaleao-fictitious-deliveries-v1',JSON.stringify(rows));
+  }
+  // Explicit, browser-only fixture. Never called through the production Gateway.
+  // Reopening preserves decisions and other fictional requests; there is no silent reset.
+  async prepareExample(): Promise<void> {
+    const organizationId = ORGS[0].organizationId;
+    const now = new Date().toISOString();
+    const content = 'Estúdio Aurora · exemplo fictício\n\nSeu negócio merece uma apresentação clara. Criamos identidades visuais para pequenos negócios do bairro. Conheça nosso processo em uma conversa inicial.';
+    const contentHash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(content))))
+      .map(b => b.toString(16).padStart(2, '0')).join('');
+    const rows = this.rows();
+    if (!rows.some(r => r.id === DEMO_EXAMPLE_ID)) {
+      rows.push({id:DEMO_EXAMPLE_ID, protocol:'CMP-DEMO-90', organizationId, createdBy:'demo-user-0',
+        category:'peca_social', goal:'divulgar_servico', channel:'linkedin', format:'post',
+        context:'Cenário fictício preparado: apresentar o serviço de identidade visual do Estúdio Aurora a pequenos negócios do bairro, sem prometer resultados.',
+        desiredDeadline:null, urgency:'normal', status:'recebido', createdAt:now, updatedAt:now});
+      this.storage.setItem(KEY, JSON.stringify(rows));
+    }
+    const history = this.historyRows();
+    if (!history.deliveries.some(d => d.requestId === DEMO_EXAMPLE_ID)) {
+      history.deliveries.push({id:'91000000-0000-4000-8000-000000000090', organizationId,
+        requestId:DEMO_EXAMPLE_ID, version:1, content, contentHash, createdBy:'demo-user-2', createdAt:now});
+      this.saveHistory(history);
+    }
   }
   private async deliveryAccess(orgId: string, requestId: string, role?: Membership['role']): Promise<void> {
     if (!(await this.memberships()).some(m => m.organizationId === orgId && (!role || m.role === role)) ||
