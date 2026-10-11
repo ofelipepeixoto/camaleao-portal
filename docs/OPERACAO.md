@@ -2,14 +2,15 @@
 
 ## Agora: ver a entrega A
 
-1. No GitHub, abrir a PR da camada de interface e selecionar sua branch (ou a
-   branch completa da camada n8n). A main contém a fundação, não entrega integrada.
-2. No chat do Codex, selecionar esse repositório e a branch completa.
+1. No GitHub, abrir [a branch completa feat/a4-triagem](https://github.com/ofelipepeixoto/camaleao-portal/tree/feat/a4-triagem).
+   A main contém a fundação, não a entrega integrada. [PRs e ordem](REVISAO.md).
+2. No chat do Codex, selecionar ofelipepeixoto/camaleao-portal e feat/a4-triagem.
 3. Usar o prompt abaixo. A equipe/agente executa os comandos; o usuário não
    precisa colar senha, chave ou usar o terminal.
 
 ```text
 Continue o Portal Camaleão. Leia AGENTS.md, README e docs/VERIFICACAO.md.
+Use ofelipepeixoto/camaleao-portal, branch feat/a4-triagem. Leia docs/REVISAO.md.
 Confira as PRs abertas e sua ordem antes de editar. Mostre a entrega A em demo
 com dados fictícios e revise acesso por organização, duplicatas e falhas.
 Não faça merge sem revisão humana. Não ative workflow, aplique migração remota,
