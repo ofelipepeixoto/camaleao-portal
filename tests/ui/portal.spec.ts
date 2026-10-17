@@ -230,3 +230,22 @@ test('B late private response after session change cannot repopulate dialog',asy
   await expect(page.getByRole('status').filter({hasText:'registrado'})).toBeVisible();
   expect(external).toEqual([]);
 });
+
+test('navegação mantém foco e campos opcionais vazios são claros', async ({page}) => {
+  await login(page);
+  await fill(page);
+  await page.getByRole('button', {name:'Enviar pedido', exact:true}).click();
+  await page.getByRole('button', {name:'Histórico', exact:true}).click();
+  await expect(page.getByRole('heading', {level:1})).toBeFocused();
+  await page.getByRole('button', {name:'Ver pedido', exact:true}).click();
+  await expect(page.getByRole('dialog')).not.toContainText('Selecione, se aplicável');
+  await expect(page.getByRole('dialog').getByText('Não indicado', {exact:true})).toHaveCount(2);
+});
+
+test('fila vazia explica o próximo destino e mantém foco', async ({page}) => {
+  await login(page, 'Equipe Camaleão');
+  await page.getByRole('button', {name:/Fila de triagem/}).click();
+  await expect(page.getByRole('heading', {level:1})).toBeFocused();
+  await expect(page.getByText('Nenhum pedido aguardando triagem.', {exact:true})).toBeVisible();
+  await expect(page.getByLabel('Filtrar por situação')).toBeDisabled();
+});

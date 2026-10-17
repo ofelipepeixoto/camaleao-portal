@@ -306,6 +306,8 @@ function navItem(label: string, target: View, iconName: 'grid' | 'clock' | 'queu
     categoryFilter = '';
     statusFilter = '';
     renderPortal();
+    const heading = app!.querySelector('h1');
+    if (heading) { heading.tabIndex = -1; heading.focus(); }
   });
   item.append(icon(iconName), el('span', '', label));
   if (count !== undefined) item.append(el('span', 'nav-count', String(count)));
@@ -430,7 +432,7 @@ function renderPortal(): void {
 
 function filteredRequests(): PortalRequest[] {
   const normalized = query.trim().toLocaleLowerCase('pt-BR');
-  return requests.filter((request) => (!categoryFilter || request.category === categoryFilter) && (!statusFilter || request.status === statusFilter) && (!normalized || [request.protocol, request.context, categories[request.category], goalLabels.get(request.goal) || request.goal].join(' ').toLocaleLowerCase('pt-BR').includes(normalized)));
+  return requests.filter((request) => (currentView !== 'queue' || request.status === 'recebido') && (!categoryFilter || request.category === categoryFilter) && (!statusFilter || request.status === statusFilter) && (!normalized || [request.protocol, request.context, categories[request.category], goalLabels.get(request.goal) || request.goal].join(' ').toLocaleLowerCase('pt-BR').includes(normalized)));
 }
 
 function requestsPanel(): HTMLElement {
@@ -438,6 +440,8 @@ function requestsPanel(): HTMLElement {
   panel.setAttribute('aria-label', currentView === 'queue' ? 'Fila de triagem' : 'Seus pedidos');
   const listContent = el('div', 'request-list-content');
   const resultCount = el('span', 'result-count');
+  resultCount.setAttribute('role', 'status');
+  resultCount.setAttribute('aria-live', 'polite');
   const refreshButton = button('Atualizar', 'text-button', () => { void refresh(); });
   refreshButton.disabled = loading;
   const search = input('search', 'search', 'Buscar protocolo ou contexto');
@@ -445,7 +449,8 @@ function requestsPanel(): HTMLElement {
   search.setAttribute('aria-label', 'Buscar pedidos por protocolo ou contexto');
   const category = select([['', 'Todos os tipos'], ...Object.entries(categories)], 'category-filter', categoryFilter);
   category.setAttribute('aria-label', 'Filtrar por tipo de pedido');
-  const status = select([['', 'Situação: todas'], ['recebido', 'Recebido'], ['em_triagem', 'Em triagem']], 'status-filter', statusFilter);
+  const status = select(currentView === 'queue' ? [['', 'Aguardando triagem']] : [['', 'Situação: todas'], ['recebido', 'Recebido'], ['em_triagem', 'Em triagem']], 'status-filter', statusFilter);
+  status.disabled = currentView === 'queue';
   status.setAttribute('aria-label', 'Filtrar por situação');
   const draw = () => {
     const filtered = filteredRequests();
@@ -458,7 +463,7 @@ function requestsPanel(): HTMLElement {
     }
     if (!filtered.length) {
       const filtering = Boolean(query || categoryFilter || statusFilter);
-      const empty = el('div', 'empty-state', el('div', 'empty-icon', icon(filtering ? 'search' : 'file')), el('h3', '', filtering ? 'Nenhum pedido com esses filtros.' : 'Seu próximo projeto começa aqui.'), el('p', '', filtering ? 'Tente outro termo ou limpe os filtros para ver seus pedidos.' : 'Conte o que você precisa. A Camaleão recebe o contexto e organiza os próximos passos.'));
+      const empty = el('div', 'empty-state', el('div', 'empty-icon', icon(filtering ? 'search' : 'file')), el('h3', '', filtering ? 'Nenhum pedido com esses filtros.' : currentView === 'queue' ? 'Nenhum pedido aguardando triagem.' : 'Seu próximo projeto começa aqui.'), el('p', '', filtering ? 'Tente outro termo ou limpe os filtros para ver seus pedidos.' : currentView === 'queue' ? 'Os pedidos já em triagem continuam disponíveis em Meus pedidos.' : 'Conte o que você precisa. A Camaleão recebe o contexto e organiza os próximos passos.'));
       if (filtering) empty.append(button('Limpar filtros', 'button button-soft', () => { query = ''; categoryFilter = ''; statusFilter = ''; search.value = ''; category.value = ''; status.value = ''; draw(); }));
       else if (currentView !== 'queue') empty.append(button('Criar meu primeiro pedido', 'button button-primary', createRequestDialog));
       listContent.replaceChildren(empty);
@@ -472,7 +477,7 @@ function requestsPanel(): HTMLElement {
   search.addEventListener('input', () => { query = search.value; draw(); });
   category.addEventListener('change', () => { categoryFilter = category.value; draw(); });
   status.addEventListener('change', () => { statusFilter = status.value; draw(); });
-  panel.append(el('div', 'panel-heading', el('div', 'panel-title', el('h2', '', currentView === 'queue' ? 'Pedidos para acompanhar' : 'Seus pedidos'), resultCount), refreshButton), el('div', 'filters', el('div', 'search-field', icon('search'), search), category, status), listContent, el('p', 'list-footnote', 'Até 100 pedidos mais recentes da organização. Prazo desejado é uma preferência; a equipe confirma o prazo de entrega.'));
+  panel.append(el('div', 'panel-heading', el('div', 'panel-title', el('h2', '', currentView === 'queue' ? 'Aguardando triagem' : 'Seus pedidos'), resultCount), refreshButton), el('div', 'filters', el('div', 'search-field', icon('search'), search), category, status), listContent, el('p', 'list-footnote', 'Até 100 pedidos mais recentes da organização. Prazo desejado é uma preferência; a equipe confirma o prazo de entrega.'));
   draw();
   return panel;
 }
@@ -517,8 +522,8 @@ function detailsDialog(request: PortalRequest): void {
   const rows: [string, string][] = [
     ['Tipo', categories[request.category] || request.category],
     ['Objetivo', goalLabels.get(request.goal) || request.goal],
-    ['Canal', channelLabels.get(request.channel) || request.channel || 'Não indicado'],
-    ['Formato', formatLabels.get(request.format) || request.format || 'Não indicado'],
+    ['Canal', request.channel ? channelLabels.get(request.channel) || request.channel : 'Não indicado'],
+    ['Formato', request.format ? formatLabels.get(request.format) || request.format : 'Não indicado'],
     ['Prazo desejado', date(request.desiredDeadline)],
     ['Urgência relatada', request.urgency === 'urgente' ? 'Urgente' : 'Normal'],
   ];
