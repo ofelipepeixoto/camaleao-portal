@@ -22,3 +22,13 @@ No adapter real, a leitura usa tabelas existentes sob RLS, revalida associação
 - Abrir #/historico antes do login; voltar/avançar funciona. Cliente não abre triagem por URL.
 - Pedido sem entrega não é pendência; decisão antiga não aprova nova versão; organização alheia é recusada.
 - CI valida cenários de navegador; homologação Supabase/n8n real e testes com participantes continuam pendentes.
+
+## Evidências finais — 17/10/2026
+
+- PR #10: https://github.com/ofelipepeixoto/camaleao-portal/pull/10, encadeada à #9, ambas sem merge nesta entrega.
+- Código validado: 2c82f0a9195faa5ea6dabdfa00d567767f147fb3.
+- Local: 89 testes aprovados, nove de PostgreSQL real ignorados; builds real/demo e git diff --check aprovados.
+- CI: banco-e-contratos e interface aprovados em https://github.com/ofelipepeixoto/camaleao-portal/actions/runs/39074364213. Interface: 25 testes aprovados, incluindo retomada em 320px, rotas e destaque após decisão. A primeira rodada teve 24/25: o teste esperava login após navegação por fragmento; foi corrigido para testar sessão ativa e sessão encerrada.
+- Publicação: versão 3 no mesmo site público https://demo-portal.camaleaoweb3.com.br. Fonte Sites: 1ff83141bc15e8e34b857bfd0b7f6952c2ce13d7; SOURCE.md referencia o commit GitHub do build.
+- Navegador conectado: #/historico abriu Histórico após entrar; texto fictício retomado após Cancelar e após recarregar/reselecionar Cliente Aurora; aviso Continuar rascunho presente na lista; estado sem pendências exibido para as entregas já decididas do navegador.
+- Chromium local continuou indisponível. Testes de navegador foram executados na CI; smoke adicional foi realizado na publicação. Isso não substitui testes com participantes reais nem homologação de Supabase/n8n/Storage.
