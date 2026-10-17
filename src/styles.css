@@ -465,3 +465,6 @@ select.input { padding-right: 24px; }
 .delivery-previous, .delivery-technical { border-top: 1px solid #33442d; }
 .request-review { margin: 0 24px 16px; padding: 8px 0; }
 .request-list > li { border-bottom: 1px solid #293a25; }
+
+/* Keyboard destination after changing a portal section. */
+h1:focus-visible { outline: 2px solid var(--lime); outline-offset: 4px; }
