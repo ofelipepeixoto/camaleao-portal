@@ -62,3 +62,14 @@ Abrir a demo → Revisar exemplo fictício → ler contexto e texto → Pedir aj
 ### Resultado da recuperação do navegador local
 
 O download do Chromium falhou. A suíte Playwright local permanece não executada; seus cenários não foram contados como aprovados. A CI remota e a inspeção da demo hospedada serão reportadas separadamente.
+
+## Resultado final de publicação e verificação
+
+- PR #9: https://github.com/ofelipepeixoto/camaleao-portal/pull/9 — rascunho, sem merge.
+- Commit do código testado: 8cdce7028c4fe8866eeb71be1a0125ab9804e334.
+- CI desse commit: jobs banco-e-contratos e interface aprovados em https://github.com/ofelipepeixoto/camaleao-portal/actions/runs/39072887040. Isso resolve a verificação automatizada remota; o Chromium local permaneceu indisponível.
+- Demo atualizada para versão 2: https://demo-portal.camaleaoweb3.com.br. Mantida pública; nenhum novo site, DNS ou serviço foi criado.
+- Fonte Sites c60cea54023b6eb11cb4adf016c2445788eea837 registra a origem GitHub em SOURCE.md. Build estático da demo; não equivale a merge ou piloto real.
+- No navegador conectado: entrada guiada abriu CMP-DEMO-90; Aprovar mostrou confirmação específica da versão 1; Voltar à revisão retornou sem aprovar; Histórico recebeu foco no título; filtro da fila estava fixo/desabilitado como previsto.
+- Não foi medida usabilidade com participantes. Teste manual mobile e leitor de tela continuam pendentes; a CI de interface inclui cenários responsivos/axe, mas não comprova conformidade integral.
+
