@@ -673,7 +673,7 @@ function createRequestDialog(): void {
   }, {capture: true});
   result.dialog.addEventListener('close', () => { if (openDialog === result.dialog) openDialog = null; });
   const controls = [category, goal, channel, format, deadline, urgency, context];
-  const draftStatus = el('p', 'field-help', 'Rascunho salvo nesta aba por até 24 horas. Sair da conta apaga os rascunhos; não é um envio.');
+  const draftStatus = el('p', 'field-help', 'Ao preencher, o rascunho será guardado nesta aba por até 24 horas. Sair da conta apaga os rascunhos.');
   draftStatus.setAttribute('role', 'status');
   contextField.append(draftStatus);
   if (editableDraft && !capturedPayload) {
@@ -693,7 +693,12 @@ function createRequestDialog(): void {
     draftStatus.textContent = ok ? 'Rascunho salvo nesta aba. Não enviado. Sair da conta apaga o rascunho.' : 'Não foi possível salvar o rascunho neste navegador. Mantenha a janela aberta.';
   };
   for (const control of controls) control.addEventListener('input', saveDraft);
-  result.dialog.addEventListener('close', () => { if (user?.id === draftUser && operationEpoch === sessionEpoch) renderPortal(); });
+  result.dialog.addEventListener('close', () => {
+    if (user?.id !== draftUser || operationEpoch !== sessionEpoch || openDialog) return;
+    renderPortal();
+    const target = [...app!.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent === 'Continuar rascunho') ?? app!.querySelector<HTMLButtonElement>('.page-intro button');
+    target?.focus();
+  });
   const lock = (locked: boolean) => {
     for (const control of controls) control.disabled = locked;
     cancel.disabled = pending;
