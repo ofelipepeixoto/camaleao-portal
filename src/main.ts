@@ -429,7 +429,7 @@ function renderPortal(): void {
   const intro = el('section', 'page-intro', el('div', '', el('span', 'eyebrow', currentView === 'queue' ? 'ÁREA DA EQUIPE' : 'SEU PROJETO, EM MOVIMENTO'), el('h1', '', heading), el('p', 'muted', lead)), action);
   const content = el('div', 'page-content', intro);
   if (organizationId && requestDrafts.read(user.id, organizationId)) {
-    content.append(el('aside', 'notice', el('span', '', 'Você tem um pedido em rascunho nesta organização.'),
+    content.append(el('aside', 'notice continuity-notice', el('span', '', 'Você tem um pedido em rascunho nesta organização.'),
       button('Continuar rascunho', 'button button-soft', createRequestDialog),
       button('Descartar rascunho', 'text-button', () => { requestDrafts.remove(user!.id, organizationId); renderPortal(); })));
   }
@@ -453,7 +453,7 @@ function renderPortal(): void {
     if (!loading && currentView === 'requests') {
       const reviewNote = pendingReviews === null ? 'Não foi possível conferir as revisões. Abra a entrega para verificar.' :
         pendingReviews.size ? `${pendingReviews.size} entrega(s) aguardando ${isOperator ? 'revisão do cliente' : 'sua revisão'}.` : 'Nenhuma entrega aguardando revisão entre os pedidos carregados.';
-      content.append(el('aside', 'notice', el('span', '', reviewNote),
+      content.append(el('aside', 'notice continuity-notice', el('span', '', reviewNote),
         pendingReviews?.size ? button(reviewOnly ? 'Mostrar todos os pedidos' : 'Ver entregas pendentes', 'button button-soft', () => {reviewOnly=!reviewOnly;renderPortal();}) : null));
     }
     if (currentView === 'queue') content.append(el('div', 'notice queue-note', icon('queue'), el('span', '', el('strong', '', 'Triagem manual nesta entrega. '), 'O n8n processa os pedidos somente quando a equipe executa o workflow. Esta tela consulta a fila; não ativa automações.')));

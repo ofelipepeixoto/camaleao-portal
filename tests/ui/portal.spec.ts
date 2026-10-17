@@ -251,11 +251,14 @@ test('fila vazia explica o próximo destino e mantém foco', async ({page}) => {
 });
 
 test('rascunho sobrevive a fechamento e recarga, e logout apaga', async ({page}) => {
+  await page.setViewportSize({width:320,height:740});
   await login(page);await fill(page,'Rascunho fictício para retomar depois de recarregar.');
   await page.getByRole('button',{name:'Cancelar',exact:true}).click();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
   await page.getByRole('button',{name:'Continuar rascunho',exact:true}).click();
   await expect(page.getByLabel('Conte o contexto *',{exact:true})).toHaveValue('Rascunho fictício para retomar depois de recarregar.');
   await page.reload();await page.getByRole('button',{name:'Cliente Aurora',exact:true}).click();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
   await page.getByRole('button',{name:'Continuar rascunho',exact:true}).click();
   await expect(page.getByLabel('Conte o contexto *',{exact:true})).toHaveValue('Rascunho fictício para retomar depois de recarregar.');
   await page.getByRole('button',{name:'Cancelar',exact:true}).click();
@@ -269,6 +272,9 @@ test('link direto e histórico não autorizam cliente a acessar triagem', async 
   await expect(page.getByRole('heading',{name:'Cada passo, registrado.'})).toBeVisible();
   await page.getByRole('button',{name:/Meus pedidos/}).click();
   await page.goBack();await expect(page.getByRole('heading',{name:'Cada passo, registrado.'})).toBeVisible();
+  await page.goto('/#/triagem');
+  await expect(page.getByRole('heading',{name:'Vamos tirar ideias do papel.'})).toBeVisible();
+  await page.getByRole('button',{name:'Sair da conta',exact:true}).click();
   await page.goto('/#/triagem');await page.getByRole('button',{name:'Cliente Aurora',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Vamos tirar ideias do papel.'})).toBeVisible();
   await expect(page.getByRole('button',{name:/Fila de triagem/})).toHaveCount(0);
