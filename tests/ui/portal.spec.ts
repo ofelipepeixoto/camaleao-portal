@@ -249,3 +249,46 @@ test('fila vazia explica o próximo destino e mantém foco', async ({page}) => {
   await expect(page.getByText('Nenhum pedido aguardando triagem.', {exact:true})).toBeVisible();
   await expect(page.getByLabel('Filtrar por situação')).toBeDisabled();
 });
+
+test('rascunho sobrevive a fechamento e recarga, e logout apaga', async ({page}) => {
+  await page.setViewportSize({width:320,height:740});
+  await login(page);await fill(page,'Rascunho fictício para retomar depois de recarregar.');
+  await page.getByRole('button',{name:'Cancelar',exact:true}).click();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  await page.getByRole('button',{name:'Continuar rascunho',exact:true}).click();
+  await expect(page.getByLabel('Conte o contexto *',{exact:true})).toHaveValue('Rascunho fictício para retomar depois de recarregar.');
+  await page.reload();await page.getByRole('button',{name:'Cliente Aurora',exact:true}).click();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  await page.getByRole('button',{name:'Continuar rascunho',exact:true}).click();
+  await expect(page.getByLabel('Conte o contexto *',{exact:true})).toHaveValue('Rascunho fictício para retomar depois de recarregar.');
+  await page.getByRole('button',{name:'Cancelar',exact:true}).click();
+  await page.getByRole('button',{name:'Sair da conta',exact:true}).click();
+  await page.getByRole('button',{name:'Cliente Aurora',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Continuar rascunho',exact:true})).toHaveCount(0);
+});
+
+test('link direto e histórico não autorizam cliente a acessar triagem', async ({page}) => {
+  await page.goto('/#/historico');await page.getByRole('button',{name:'Cliente Aurora',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Cada passo, registrado.'})).toBeVisible();
+  await page.getByRole('button',{name:/Meus pedidos/}).click();
+  await page.goBack();await expect(page.getByRole('heading',{name:'Cada passo, registrado.'})).toBeVisible();
+  await page.goto('/#/triagem');
+  await expect(page.getByRole('heading',{name:'Vamos tirar ideias do papel.'})).toBeVisible();
+  await page.getByRole('button',{name:'Sair da conta',exact:true}).click();
+  await page.goto('/#/triagem');await page.getByRole('button',{name:'Cliente Aurora',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Vamos tirar ideias do papel.'})).toBeVisible();
+  await expect(page.getByRole('button',{name:/Fila de triagem/})).toHaveCount(0);
+});
+
+test('entrega pendente aparece na lista e some depois da decisão', async ({page}) => {
+  await page.goto('/');await page.getByRole('button',{name:'Revisar exemplo fictício',exact:true}).click();
+  await page.getByRole('button',{name:'Fechar janela',exact:true}).click();
+  await expect(page.getByText('Aguardando sua revisão',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Ver entregas pendentes',exact:true}).click();
+  await page.getByRole('button',{name:/Revisar entregas do pedido/}).click();
+  await page.getByRole('button',{name:'Aprovar',exact:true}).click();
+  await page.getByRole('button',{name:'Confirmar aprovação da versão 1',exact:true}).click();
+  await expect(page.getByText('Aprovada · versão 1',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Fechar janela',exact:true}).click();
+  await expect(page.getByText('Aguardando sua revisão',{exact:true})).toHaveCount(0);
+});

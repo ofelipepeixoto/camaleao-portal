@@ -1,3 +1,4 @@
+import { awaitingReview } from './review-state.ts';
 import type { Gateway, Membership, PortalRequest, RequestPayload, User, Delivery, DeliveryDecision, DeliveryHistory, PresentDelivery, DecideDelivery } from './model.ts';
 import { PortalError } from './supabase-gateway.ts';
 import { validatePayload } from './validation.ts';
@@ -83,6 +84,13 @@ export class DemoGateway implements Gateway {
     if (!(await this.memberships()).some(m => m.organizationId === orgId && (!role || m.role === role)) ||
       !this.rows().some(r => r.organizationId === orgId && r.id === requestId))
       throw new PortalError('Acesso fictício não disponível.', 'access_denied');
+  }
+  async pendingReviews(orgId: string, requestIds: string[]): Promise<string[]> {
+    const allowed = await this.listRequests(orgId);
+    const ids = new Set(allowed.filter(r=>requestIds.includes(r.id)).map(r=>r.id));
+    const history = this.historyRows();
+    return awaitingReview(history.deliveries.filter(d=>d.organizationId===orgId && ids.has(d.requestId)),
+      history.decisions.filter(d=>d.organizationId===orgId && ids.has(d.requestId)));
   }
   async deliveryHistory(orgId: string, requestId: string): Promise<DeliveryHistory> {
     await this.deliveryAccess(orgId,requestId);
