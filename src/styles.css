@@ -468,3 +468,5 @@ select.input { padding-right: 24px; }
 
 /* Keyboard destination after changing a portal section. */
 h1:focus-visible { outline: 2px solid var(--lime); outline-offset: 4px; }
+
+.review-pending { display: inline-block; margin: 0 1rem 0.75rem; padding: .4rem .65rem; color: var(--lime); border: 1px solid currentColor; border-radius: .5rem; font-size: .85rem; }

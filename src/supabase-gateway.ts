@@ -1,3 +1,4 @@
+import { awaitingReview } from './review-state.ts';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Gateway, Membership, PortalRequest, RequestPayload, User, Delivery, DeliveryDecision, DeliveryHistory, PresentDelivery, DecideDelivery } from './model.ts';
 import { validatePayload } from './validation.ts';
@@ -110,6 +111,30 @@ export class SupabaseGateway implements Gateway {
     const allowed = await this.memberships();
     if (!allowed.some(m => m.organizationId === orgId && (!role || m.role === role)))
       throw new PortalError('Seu acesso a esta organização mudou.', 'access_denied');
+  }
+  async pendingReviews(orgId: string, requestIds: string[]): Promise<string[]> {
+    await this.deliveryAccess(orgId);
+    if (!requestIds.length) return [];
+    if (requestIds.length > 100) throw new PortalError('Atualize a lista de pedidos.', 'unavailable');
+    // RLS remains authoritative; retrieve metadata only, never all delivery text.
+    const read = async (table: string, fields: string) => {
+      const rows: Record<string, unknown>[] = [];
+      for (let offset=0; offset<10000; offset+=100) {
+        const {data,error}=await this.client.from(table).select(fields).eq('organization_id',orgId)
+          .in('request_id',requestIds).order('id',{ascending:true}).range(offset,offset+99);
+        if(error)fail(error);
+        rows.push(...((data ?? []) as unknown as Record<string,unknown>[]));
+        if((data ?? []).length<100)return rows;
+      }
+      throw new PortalError('Não foi possível conferir todas as revisões.', 'unavailable');
+    };
+    const versions=await read('camaleao_deliveries','id,request_id,version,content_hash');
+    const decisions=await read('camaleao_decisions','id,delivery_id,content_hash');
+    if(versions.some(r=>typeof r.id!=='string'||typeof r.request_id!=='string'||typeof r.version!=='number'||typeof r.content_hash!=='string') ||
+      decisions.some(r=>typeof r.delivery_id!=='string'||typeof r.content_hash!=='string'))
+      throw new PortalError('Não foi possível conferir as revisões.', 'unavailable');
+    return awaitingReview(versions.map(r=>({id:String(r.id),requestId:String(r.request_id),version:Number(r.version),contentHash:String(r.content_hash)})),
+      decisions.map(r=>({deliveryId:String(r.delivery_id),contentHash:String(r.content_hash)})));
   }
   async deliveryHistory(orgId: string, requestId: string): Promise<DeliveryHistory> {
     await this.deliveryAccess(orgId);

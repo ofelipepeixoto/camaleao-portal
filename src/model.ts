@@ -17,6 +17,7 @@ export interface Gateway {
   memberships(): Promise<Membership[]>;
   listRequests(orgId: string): Promise<PortalRequest[]>;
   createRequest(orgId: string, requestId: string, payload: RequestPayload): Promise<PortalRequest>;
+  pendingReviews?(orgId: string, requestIds: string[]): Promise<string[]>;
   deliveryHistory(orgId: string, requestId: string): Promise<DeliveryHistory>;
   presentDelivery(orgId: string, requestId: string, payload: PresentDelivery): Promise<Delivery>;
   decideDelivery(orgId: string, requestId: string, payload: DecideDelivery): Promise<DeliveryDecision>;

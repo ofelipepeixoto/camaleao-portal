@@ -2,6 +2,8 @@ import { gateway, isDemo } from './gateway';
 import type { Membership, PortalRequest, RequestPayload, User } from './model';
 import { brandedName, button, el, field, icon, input, modal, select } from './ui';
 import './styles.css';
+import { RequestDrafts } from './request-drafts';
+import { viewFromHash, hashFromView, allowedView, type View } from './routes';
 import { openDeliveryDialog, clearDeliveryDrafts } from './delivery-ui';
 import { DemoGateway, DEMO_EXAMPLE_ID } from './demo-gateway';
 
@@ -37,11 +39,13 @@ const formatLabels = new Map(formatOptions);
 const dateFormat = new Intl.DateTimeFormat('pt-BR', {day: '2-digit', month: 'short', year: 'numeric'});
 const shortDateFormat = new Intl.DateTimeFormat('pt-BR', {day: '2-digit', month: 'short'});
 
-type View = 'requests' | 'history' | 'queue';
+const requestDrafts = new RequestDrafts(sessionStorage);
 let user: User | null = null;
 let memberships: Membership[] = [];
 let organizationId = '';
 let requests: PortalRequest[] = [];
+let pendingReviews: Set<string> | null = null;
+let reviewOnly = false;
 let currentView: View = 'requests';
 let sessionEpoch = 0;
 let refreshEpoch = 0;
@@ -103,6 +107,8 @@ function clearPrivateState(): void {
   memberships = [];
   organizationId = '';
   requests = [];
+  pendingReviews = null;
+  reviewOnly = false;
   lastUpdate = null;
   query = '';
   categoryFilter = '';
@@ -224,6 +230,7 @@ function loginScreen(message = ''): void {
 }
 
 async function changeSession(nextUser: User | null): Promise<void> {
+  if (user && user.id !== nextUser?.id) requestDrafts.clear(user.id);
   clearPrivateState();
   user = nextUser;
   pageError = '';
@@ -233,12 +240,13 @@ async function changeSession(nextUser: User | null): Promise<void> {
     loginScreen();
     return;
   }
-  currentView = 'requests';
+  currentView = viewFromHash(location.hash);
   renderPortal();
   await refresh();
 }
 
 async function invalidateAccess(): Promise<void> {
+  if (user) requestDrafts.clear(user.id);
   clearPrivateState();
   user = null;
   loading = false;
@@ -259,9 +267,12 @@ async function refresh(): Promise<void> {
     if (epoch !== sessionEpoch || sequence !== refreshEpoch || !user) return;
     memberships = allowed;
     if (!allowed.length) {
+      requestDrafts.clear(user.id);
       uncertainDrafts.clear();
       clearDeliveryDrafts();
       requests = [];
+      pendingReviews = null;
+      reviewOnly = false;
       organizationId = '';
       dismissDialog();
       loading = false;
@@ -269,9 +280,12 @@ async function refresh(): Promise<void> {
       return;
     }
     if (organizationId && !allowed.some((membership) => membership.organizationId === organizationId)) {
+      requestDrafts.clear(user.id);
       uncertainDrafts.clear();
       clearDeliveryDrafts();
       requests = [];
+      pendingReviews = null;
+      reviewOnly = false;
       organizationId = '';
       dismissDialog();
       notice = 'Seu acesso a uma organização mudou. Exibimos apenas as organizações disponíveis agora.';
@@ -280,11 +294,24 @@ async function refresh(): Promise<void> {
     const nextRequests = await gateway.listRequests(organizationId);
     if (epoch !== sessionEpoch || sequence !== refreshEpoch || !user) return;
     requests = nextRequests;
-    if (currentMembership()?.role !== 'operator' && currentView === 'queue') currentView = 'requests';
+    pendingReviews = null;
+    try {
+      const pending = gateway.pendingReviews ? await gateway.pendingReviews(organizationId, nextRequests.map(r=>r.id)) : null;
+      if (epoch !== sessionEpoch || sequence !== refreshEpoch || !user) return;
+      pendingReviews = pending ? new Set(pending) : null;
+    } catch (error) {
+      if (epoch !== sessionEpoch || sequence !== refreshEpoch || !user) return;
+      if (isAccessError(error)) { await invalidateAccess(); return; }
+      pendingReviews = null;
+    }
+    currentView = allowedView(currentView, currentMembership()?.role === 'operator');
+    history.replaceState(null, '', hashFromView(currentView));
     lastUpdate = new Date();
   } catch (error) {
     if (epoch !== sessionEpoch || sequence !== refreshEpoch) return;
     requests = [];
+    pendingReviews = null;
+    reviewOnly = false;
     dismissDialog();
     if (isAccessError(error)) {
       await invalidateAccess();
@@ -301,7 +328,8 @@ async function refresh(): Promise<void> {
 
 function navItem(label: string, target: View, iconName: 'grid' | 'clock' | 'queue', count?: number): HTMLElement {
   const item = button('', `nav-item ${currentView === target ? 'active' : ''}`, () => {
-    currentView = target;
+    currentView = allowedView(target, currentMembership()?.role === 'operator');
+    history.pushState(null, '', hashFromView(currentView));
     query = '';
     categoryFilter = '';
     statusFilter = '';
@@ -337,6 +365,8 @@ function sidebar(): HTMLElement {
 }
 
 async function logoutSession(): Promise<void> {
+  if (user) requestDrafts.clear(user.id);
+  history.replaceState(null, '', location.pathname + location.search);
   clearPrivateState();
   user = null;
   loading = false;
@@ -358,6 +388,8 @@ function organizationPicker(): HTMLElement {
     uncertainDrafts.clear();
     clearDeliveryDrafts();
     requests = [];
+    pendingReviews = null;
+    reviewOnly = false;
     dismissDialog();
     organizationId = control.value;
     query = '';
@@ -396,6 +428,11 @@ function renderPortal(): void {
   const lead = currentView === 'history' ? 'Consulte a criação e a última atualização dos seus pedidos.' : currentView === 'queue' ? 'Veja o que chegou e acompanhe a triagem manual da equipe.' : 'Crie seu próximo pedido e acompanhe o que acontece com ele.';
   const intro = el('section', 'page-intro', el('div', '', el('span', 'eyebrow', currentView === 'queue' ? 'ÁREA DA EQUIPE' : 'SEU PROJETO, EM MOVIMENTO'), el('h1', '', heading), el('p', 'muted', lead)), action);
   const content = el('div', 'page-content', intro);
+  if (organizationId && requestDrafts.read(user.id, organizationId)) {
+    content.append(el('aside', 'notice', el('span', '', 'Você tem um pedido em rascunho nesta organização.'),
+      button('Continuar rascunho', 'button button-soft', createRequestDialog),
+      button('Descartar rascunho', 'text-button', () => { requestDrafts.remove(user!.id, organizationId); renderPortal(); })));
+  }
   if (notice) {
     const notification = el('div', 'notice success-notice', icon('check'), el('span', '', notice));
     notification.setAttribute('role', 'status');
@@ -413,6 +450,12 @@ function renderPortal(): void {
     content.append(error);
   } else {
     if (currentView !== 'history') content.append(stats());
+    if (!loading && currentView === 'requests') {
+      const reviewNote = pendingReviews === null ? 'Não foi possível conferir as revisões. Abra a entrega para verificar.' :
+        pendingReviews.size ? `${pendingReviews.size} entrega(s) aguardando ${isOperator ? 'revisão do cliente' : 'sua revisão'}.` : 'Nenhuma entrega aguardando revisão entre os pedidos carregados.';
+      content.append(el('aside', 'notice', el('span', '', reviewNote),
+        pendingReviews?.size ? button(reviewOnly ? 'Mostrar todos os pedidos' : 'Ver entregas pendentes', 'button button-soft', () => {reviewOnly=!reviewOnly;renderPortal();}) : null));
+    }
     if (currentView === 'queue') content.append(el('div', 'notice queue-note', icon('queue'), el('span', '', el('strong', '', 'Triagem manual nesta entrega. '), 'O n8n processa os pedidos somente quando a equipe executa o workflow. Esta tela consulta a fila; não ativa automações.')));
     content.append(currentView === 'history' ? historyPanel() : requestsPanel());
   }
@@ -432,7 +475,7 @@ function renderPortal(): void {
 
 function filteredRequests(): PortalRequest[] {
   const normalized = query.trim().toLocaleLowerCase('pt-BR');
-  return requests.filter((request) => (currentView !== 'queue' || request.status === 'recebido') && (!categoryFilter || request.category === categoryFilter) && (!statusFilter || request.status === statusFilter) && (!normalized || [request.protocol, request.context, categories[request.category], goalLabels.get(request.goal) || request.goal].join(' ').toLocaleLowerCase('pt-BR').includes(normalized)));
+  return requests.filter((request) => (currentView !== 'queue' || request.status === 'recebido') && (!reviewOnly || currentView !== 'requests' || Boolean(pendingReviews?.has(request.id))) && (!categoryFilter || request.category === categoryFilter) && (!statusFilter || request.status === statusFilter) && (!normalized || [request.protocol, request.context, categories[request.category], goalLabels.get(request.goal) || request.goal].join(' ').toLocaleLowerCase('pt-BR').includes(normalized)));
 }
 
 function requestsPanel(): HTMLElement {
@@ -462,9 +505,9 @@ function requestsPanel(): HTMLElement {
       return;
     }
     if (!filtered.length) {
-      const filtering = Boolean(query || categoryFilter || statusFilter);
+      const filtering = Boolean(query || categoryFilter || statusFilter || reviewOnly);
       const empty = el('div', 'empty-state', el('div', 'empty-icon', icon(filtering ? 'search' : 'file')), el('h3', '', filtering ? 'Nenhum pedido com esses filtros.' : currentView === 'queue' ? 'Nenhum pedido aguardando triagem.' : 'Seu próximo projeto começa aqui.'), el('p', '', filtering ? 'Tente outro termo ou limpe os filtros para ver seus pedidos.' : currentView === 'queue' ? 'Os pedidos já em triagem continuam disponíveis em Meus pedidos.' : 'Conte o que você precisa. A Camaleão recebe o contexto e organiza os próximos passos.'));
-      if (filtering) empty.append(button('Limpar filtros', 'button button-soft', () => { query = ''; categoryFilter = ''; statusFilter = ''; search.value = ''; category.value = ''; status.value = ''; draw(); }));
+      if (filtering) empty.append(button('Limpar filtros', 'button button-soft', () => { reviewOnly = false; query = ''; categoryFilter = ''; statusFilter = ''; search.value = ''; category.value = ''; status.value = ''; draw(); }));
       else if (currentView !== 'queue') empty.append(button('Criar meu primeiro pedido', 'button button-primary', createRequestDialog));
       listContent.replaceChildren(empty);
       return;
@@ -494,7 +537,7 @@ function requestRow(request: PortalRequest): HTMLLIElement {
   );
   const review = button('Revisar entregas', 'text-button request-review', () => deliveriesDialog(request));
   review.setAttribute('aria-label', `Revisar entregas do pedido ${request.protocol}`);
-  return el('li', '', card, review);
+  return el('li', '', card, pendingReviews?.has(request.id) ? el('strong', 'review-pending', currentMembership()?.role === 'operator' ? 'Aguardando revisão do cliente' : 'Aguardando sua revisão') : null, review);
 }
 
 function historyPanel(): HTMLElement {
@@ -550,15 +593,18 @@ function deliveriesDialog(request: PortalRequest): void {
       demoNext: isDemo && request.id === DEMO_EXAMPLE_ID ? createRequestDialog : undefined,
       valid: () => epoch === sessionEpoch && org === organizationId && Boolean(user),
       accessDenied: () => { void invalidateAccess(); },
-      register: dialog => { openDialog = dialog; dialog.addEventListener('close', () => { if (openDialog === dialog) openDialog = null; }); },
+      register: dialog => { openDialog = dialog; dialog.addEventListener('close', () => { if (openDialog === dialog) openDialog = null; if (epoch === sessionEpoch && org === organizationId && user) void refresh(); }); },
     });
 }
 
 function createRequestDialog(): void {
   if (!user || !organizationId || loading) return;
   const operationEpoch = sessionEpoch;
+  const draftUser = user.id;
   const targetOrganization = organizationId;
-  const previousDraft = uncertainDrafts.get(targetOrganization);
+  const editableDraft = requestDrafts.read(draftUser, targetOrganization);
+  const pendingId = requestDrafts.pendingId(draftUser, targetOrganization);
+  const previousDraft = uncertainDrafts.get(targetOrganization) ?? (editableDraft && pendingId ? {requestId:pendingId,payload:editableDraft} : undefined);
   const requestId = previousDraft?.requestId ?? crypto.randomUUID();
   let pending = false;
   let capturedPayload: RequestPayload | null = previousDraft?.payload ?? null;
@@ -627,6 +673,27 @@ function createRequestDialog(): void {
   }, {capture: true});
   result.dialog.addEventListener('close', () => { if (openDialog === result.dialog) openDialog = null; });
   const controls = [category, goal, channel, format, deadline, urgency, context];
+  const draftStatus = el('p', 'field-help', 'Rascunho salvo nesta aba por até 24 horas. Sair da conta apaga os rascunhos; não é um envio.');
+  draftStatus.setAttribute('role', 'status');
+  contextField.append(draftStatus);
+  if (editableDraft && !capturedPayload) {
+    category.value = editableDraft.category; goal.value = editableDraft.goal;
+    channel.value = editableDraft.channel; format.value = editableDraft.format;
+    deadline.value = editableDraft.desiredDeadline ?? ''; urgency.value = editableDraft.urgency;
+    context.value = editableDraft.context;
+    counter.textContent = `${context.value.length.toLocaleString('pt-BR')} / 2.000`;
+  }
+  const saveDraft = () => {
+    if (pending || capturedPayload || operationEpoch !== sessionEpoch || user?.id !== draftUser) return;
+    const ok = requestDrafts.write(draftUser, targetOrganization, {
+      category: category.value as RequestPayload['category'], goal:goal.value, channel:channel.value,
+      format:format.value, context:context.value, desiredDeadline:deadline.value || null,
+      urgency:urgency.value as RequestPayload['urgency'],
+    });
+    draftStatus.textContent = ok ? 'Rascunho salvo nesta aba. Não enviado. Sair da conta apaga o rascunho.' : 'Não foi possível salvar o rascunho neste navegador. Mantenha a janela aberta.';
+  };
+  for (const control of controls) control.addEventListener('input', saveDraft);
+  result.dialog.addEventListener('close', () => { if (user?.id === draftUser && operationEpoch === sessionEpoch) renderPortal(); });
   const lock = (locked: boolean) => {
     for (const control of controls) control.disabled = locked;
     cancel.disabled = pending;
@@ -667,6 +734,7 @@ function createRequestDialog(): void {
       desiredDeadline: deadline.value || null,
       urgency: urgency.value as RequestPayload['urgency'],
     };
+    requestDrafts.write(draftUser, targetOrganization, capturedPayload, requestId);
     uncertainDrafts.set(targetOrganization, {requestId, payload: capturedPayload});
     pending = true;
     lock(true);
@@ -676,9 +744,11 @@ function createRequestDialog(): void {
       const saved = await gateway.createRequest(targetOrganization, requestId, capturedPayload);
       if (operationEpoch !== sessionEpoch || !user || targetOrganization !== organizationId) return;
       uncertainDrafts.delete(targetOrganization);
+      requestDrafts.remove(draftUser, targetOrganization);
       close();
       notice = `Pedido ${saved.protocol} registrado. A equipe recebeu seu contexto para a triagem.`;
       currentView = 'requests';
+      history.replaceState(null, '', hashFromView(currentView));
       query = '';
       categoryFilter = '';
       statusFilter = '';
@@ -686,8 +756,8 @@ function createRequestDialog(): void {
     } catch (error) {
       if (operationEpoch !== sessionEpoch || !user || targetOrganization !== organizationId) return;
       if (isAccessError(error)) { await invalidateAccess(); return; }
-      if (errorCode(error) === 'validation') { capturedPayload = null; uncertainDrafts.delete(targetOrganization); }
-      if (errorCode(error) === 'conflict') { conflict = true; uncertainDrafts.delete(targetOrganization); }
+      if (errorCode(error) === 'validation') { capturedPayload = null; uncertainDrafts.delete(targetOrganization); requestDrafts.remove(draftUser, targetOrganization); }
+      if (errorCode(error) === 'conflict') { conflict = true; uncertainDrafts.delete(targetOrganization); requestDrafts.remove(draftUser, targetOrganization); }
       // Keep both ID and payload stable after an uncertain response. A retry cannot become a second request.
       feedback.textContent = `${displayError(error)} Ao tentar novamente, usamos o mesmo envio para evitar duplicatas.`;
       feedback.hidden = false;
@@ -724,4 +794,18 @@ async function start(): Promise<void> {
 // Refresh only in a visible, signed-in portal. No n8n job is activated by this polling.
 window.setInterval(() => { if (user && !loading && !openDialog && document.visibilityState === 'visible') void refresh(); }, 30_000);
 document.addEventListener('visibilitychange', () => { if (user && document.visibilityState === 'visible' && !openDialog) void refresh(); });
+function followRoute(): void {
+  if (location.hash === '#conteudo' || !user) return;
+  // A URL never grants access to a role or organization.
+  if (openDialog?.querySelector('button:disabled')) return;
+  dismissDialog();
+  currentView = allowedView(viewFromHash(location.hash), currentMembership()?.role === 'operator');
+  history.replaceState(null, '', hashFromView(currentView));
+  query = ''; categoryFilter = ''; statusFilter = '';
+  renderPortal();
+  const heading = app!.querySelector('h1');
+  if (heading) { heading.tabIndex = -1; heading.focus(); }
+}
+window.addEventListener('popstate', followRoute);
+window.addEventListener('hashchange', followRoute);
 void start();
